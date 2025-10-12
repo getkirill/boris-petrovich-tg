@@ -33,7 +33,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         textSource.botCommandTextSourceOrNull()
             ?.let { botCommandTextSource -> botCommandTextSource.command == "generate" && (botCommandTextSource.username == getMe().username || inDirectMessages) } == true
     } == true
-    if (hasStartingSlash || isFromBot || (hasCommands && !hasMyGenerateCommand)) {
+    if (isFromBot || ((hasCommands || hasStartingSlash) && !hasMyGenerateCommand)) {
         println("Refusing to process; message starts with slash, contains commands or is from bot.")
         return
     }
