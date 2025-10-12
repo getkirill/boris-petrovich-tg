@@ -1,66 +1,58 @@
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.bot.getMe
-import dev.inmo.tgbotapi.extensions.api.send.media.sendDocument
 import dev.inmo.tgbotapi.extensions.api.send.media.sendSticker
 import dev.inmo.tgbotapi.extensions.api.send.reply
 import dev.inmo.tgbotapi.extensions.api.send.send
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
-import dev.inmo.tgbotapi.extensions.behaviour_builder.buildBehaviour
 import dev.inmo.tgbotapi.extensions.behaviour_builder.buildBehaviourWithLongPolling
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
-import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onGroupEvent
-import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onSticker
-import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onText
-import dev.inmo.tgbotapi.extensions.utils.asPrivateChat
-import dev.inmo.tgbotapi.extensions.utils.asTextContent
-import dev.inmo.tgbotapi.extensions.utils.botCommandTextSourceOrNull
-import dev.inmo.tgbotapi.extensions.utils.botOrNull
+import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
-import dev.inmo.tgbotapi.extensions.utils.mentionTextSourceOrNull
-import dev.inmo.tgbotapi.extensions.utils.optionallyFromUserMessageOrNull
-import dev.inmo.tgbotapi.extensions.utils.textContentOrNull
-import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.retrieveAccumulatedUpdates
 import dev.inmo.tgbotapi.types.ReplyParameters
-import dev.inmo.tgbotapi.types.dropPendingUpdatesField
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
 import dev.inmo.tgbotapi.types.message.content.MessageContent
-import dev.inmo.tgbotapi.types.message.textsources.BotCommandTextSource
-import dev.inmo.tgbotapi.types.textParseModeField
-import dev.inmo.tgbotapi.updateshandlers.FlowsUpdatesFilter
-import java.io.File
+import dev.inmo.tgbotapi.utils.PreviewFeature
+import dev.inmo.tgbotapi.utils.RiskFeature
 import kotlin.random.Random
 
+@OptIn(RiskFeature::class, PreviewFeature::class)
 suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: CommonMessage<MessageContent>) {
     println("Received message! $message")
-    val passesChance = Random.nextInt(0, 10) > 8
+    val hasStartingSlash = message.text?.trim()?.startsWith("/") == true
     val isFromBot = message.from?.botOrNull() != null
+    val hasCommands =
+        message.content.asTextContent()?.textSources?.any { it.botCommandTextSourceOrNull() != null } == true
     val inDirectMessages = message.chat.asPrivateChat() != null
-    val inReplyToMe = message.replyTo?.from?.id == getMe().id
-    val hasCommands = message.content.asTextContent()?.textSources?.any { it.botCommandTextSourceOrNull() != null } == true
-    val hasMentionOfMe = message.content.asTextContent()?.textSources?.any { it.mentionTextSourceOrNull()?.username == getMe().username } == true
-    val hasMyGenerateCommand = message.content.asTextContent()?.textSources?.any { it.botCommandTextSourceOrNull()?.let { it.command == "generate" && it.username == getMe().username } == true } == true
-    val shouldAcknowledge = !isFromBot && (!hasCommands || hasMyGenerateCommand) && (
-            inReplyToMe || hasMentionOfMe || inDirectMessages || passesChance || hasMyGenerateCommand)
-    val tokens = /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.tokenize(db).toList().takeLast(Database.CONTEXT_WINDOW) + message.content.tokenize(db) } ?: */message.content.tokenize(db)
-    if(!hasCommands && !isFromBot) {
-//        db.cacheMessageForTraining(message.chat, message)
-        db.updateAssociations(tokens)
-    } else {
-        println("Refusing to associate, contains commands or is from bot")
-//        db.cacheMessageForTraining(message.chat, null)
+    val hasMyGenerateCommand = message.content.asTextContent()?.textSources?.any { textSource ->
+        textSource.botCommandTextSourceOrNull()
+            ?.let { botCommandTextSource -> botCommandTextSource.command == "generate" && (botCommandTextSource.username == getMe().username || inDirectMessages) } == true
+    } == true
+    if (hasStartingSlash || isFromBot || (hasCommands && !hasMyGenerateCommand)) {
+        println("Refusing to process; message starts with slash, contains commands or is from bot.")
+        return
     }
-    if(!shouldAcknowledge) {
-        println("Refusing to acknowledge, one of the conditions failed")
-        println("passesChance: $passesChance")
-        println("isFromBot: $isFromBot")
-        println("inDirectMessages: $inDirectMessages")
-        println("inReplyToMe: $inReplyToMe")
-        println("hasCommands: $hasCommands")
-        println("hasMentionOfMe: $hasMentionOfMe")
-        println("hasMyGenerateCommand: $hasMyGenerateCommand")
+    val passesChance = Random.nextInt(0, 12) < 1
+    val inReplyToMe = message.replyTo?.from?.id == getMe().id
+    val hasMentionOfMe =
+        message.content.asTextContent()?.textSources?.any { it.mentionTextSourceOrNull()?.username == getMe().username } == true
+    val shouldAcknowledge = inReplyToMe || hasMentionOfMe || inDirectMessages || hasMyGenerateCommand || passesChance
+    // TODO: reintroduce message caching for training
+    val tokens =
+        /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.tokenize(db).toList().takeLast(Database.CONTEXT_WINDOW) + message.content.tokenize(db) } ?: */
+        message.content.tokenize(db)
+    db.updateAssociations(tokens)
+    if (!shouldAcknowledge) {
+        println("Refusing to acknowledge; none of the conditions for responding are true")
+//        println("passesChance: $passesChance")
+//        println("isFromBot: $isFromBot")
+//        println("inDirectMessages: $inDirectMessages")
+//        println("inReplyToMe: $inReplyToMe")
+//        println("hasCommands: $hasCommands")
+//        println("hasMentionOfMe: $hasMentionOfMe")
+//        println("hasMyGenerateCommand: $hasMyGenerateCommand")
         return
     }
     val replyInfo =
@@ -75,9 +67,9 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         replyParameters = replyInfo
     )
     else {
-        val textualPrediction = prediction.joinToString(" ") { if (it is TextToken) it.text ?: "" else "" }
+        val textualPrediction = prediction.joinToString(" ") { if (it is TextToken) it.text else "" }
         println("Final textual prediction: $textualPrediction")
-        if(textualPrediction.length > 4096) {
+        if (textualPrediction.length > 4096) {
             send(
                 message.chat,
                 "_Boris has attempted to send message longer than *4096* characters \\(*${textualPrediction.length}*\\)_",
@@ -86,11 +78,11 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
             )
 //            println(textualPrediction)
         } else
-        send(
-            message.chat,
-            textualPrediction,
-            replyParameters = replyInfo
-        )
+            send(
+                message.chat,
+                textualPrediction,
+                replyParameters = replyInfo
+            )
     }
 }
 
@@ -104,8 +96,11 @@ suspend fun main() {
         println(getMe())
 
         onCommand("start") {
-            reply(it, "Привет\\! Меня зовут Борис Петрович\\.\nЯ читаю сообщения и пытаюсь сгенерировать свои на основе известных\\!\n\n_Бот читает все сообщения которые он получает, а также сохраняет часть сообщений для допольнительного контекста во время обучения\\.\nНемедленно кикнете бота если вы не согласны с этим\\._",
-                MarkdownV2ParseMode)
+            reply(
+                it,
+                "Привет\\! Меня зовут Борис Петрович\\.\nЯ читаю сообщения и пытаюсь сгенерировать свои на основе известных\\!\n\n_Бот читает все сообщения которые он получает, а также может сохранять часть сообщений для допольнительного контекста во время обучения\\.\nНемедленно кикнете/заблокируйте бота если вы не согласны с этим\\._",
+                MarkdownV2ParseMode
+            )
         }
         onContentMessage {
 //            if (it.content.text.startsWith("/") == true) return@onText

@@ -2,10 +2,6 @@ import dev.inmo.tgbotapi.requests.abstracts.FileId
 import dev.inmo.tgbotapi.types.chat.Chat
 import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
 import dev.inmo.tgbotapi.types.message.content.MessageContent
-import java.io.DataOutputStream
-import java.io.File
-import java.io.FileOutputStream
-import java.sql.DriverManager
 
 abstract class Database {
     abstract fun cacheMessageForTraining(chat: Chat, message: ContentMessage<MessageContent>?)
@@ -44,7 +40,10 @@ abstract class Database {
     }
 
     companion object {
-        val CONTEXT_WINDOW = 5;
+        /**
+         * Maximum context window. CONTEXT_WINDOW tokens predict 1 token
+         */
+        const val CONTEXT_WINDOW = 5
     }
 }
 
