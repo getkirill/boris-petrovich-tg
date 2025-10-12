@@ -46,7 +46,11 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.tokenize(db).toList().takeLast(Database.CONTEXT_WINDOW) + message.content.tokenize(db) } ?: */
         message.content.tokenize(db)
-    db.updateAssociations(tokens)
+    if (!hasCommands) db.updateAssociations(tokens)
+    if (db.associationCount <= 0) {
+        reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
+        return
+    }
     if (!shouldAcknowledge) {
         println("Refusing to acknowledge; none of the conditions for responding are true")
 //        println("passesChance: $passesChance")
@@ -159,6 +163,22 @@ suspend fun main() {
                 Associations known: ${db.associationCount}
             """.trimIndent()
             )
+        }
+        onCommand("tokenize", false) {
+            val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
+//            println("/tokenize $text")
+            if (text.isNotBlank()) reply(
+                it, text.tokenize(db)
+                    .joinToString (" ") { token -> if (token is MarkerToken) "${token.type.name} (${token.id})" else token.id.toString() })
+            else reply(it, "_Text is empty\\!_", MarkdownV2ParseMode)
+        }
+        onCommand("untokenize", false) {
+            val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
+//            println("/untokenize $text")
+            if(text.isNotBlank())reply(it, text.split(" ")
+                .mapNotNull { text -> text.toLongOrNull()?.let { num -> db.getToken(num) } }
+                .joinToString(" ") { token -> if (token is TextToken) token.text else "" })
+            else reply(it, "_Text is empty\\!_", MarkdownV2ParseMode)
         }
 //        onCommand("generate") {
 ////            if (it.from?.botOrNull() != null) return@onCommand

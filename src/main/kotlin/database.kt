@@ -6,6 +6,7 @@ import dev.inmo.tgbotapi.types.message.content.MessageContent
 abstract class Database {
     abstract fun cacheMessageForTraining(chat: Chat, message: ContentMessage<MessageContent>?)
     abstract fun recallMessageForTraining(chat: Chat): ContentMessage<MessageContent>?
+    open fun getToken(id: Long): Token? = null
     abstract fun findOrMakeTextTokenFor(segment: String): TextToken
     abstract fun findOrMakeStickerTokenFor(sticker: FileId): StickerToken
 
@@ -62,11 +63,14 @@ open class InMemoryDatabase : Database() {
         return messageCache[chat.id.chatId.long]
     }
 
+    override fun getToken(id: Long): Token? =
+        textTokenList.firstOrNull { it.id == id } ?: stickerTokenList.firstOrNull { it.id == id }
+
     override fun findOrMakeTextTokenFor(segment: String): TextToken {
         return textTokenList.firstOrNull { it.text == segment } ?: nextId.let {
             nextId++; TextToken(
-                it, segment
-            ).apply { textTokenList.add(this) }
+            it, segment
+        ).apply { textTokenList.add(this) }
         }
     }
 
