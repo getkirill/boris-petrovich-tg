@@ -3,6 +3,7 @@ import dev.inmo.tgbotapi.extensions.api.bot.getMe
 import dev.inmo.tgbotapi.extensions.api.getUpdates
 import dev.inmo.tgbotapi.extensions.api.send.media.sendSticker
 import dev.inmo.tgbotapi.extensions.api.send.reply
+import dev.inmo.tgbotapi.extensions.api.send.replyWithSticker
 import dev.inmo.tgbotapi.extensions.api.send.send
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.buildBehaviourWithLongPolling
@@ -93,6 +94,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     }
 }
 
+@OptIn(PreviewFeature::class)
 suspend fun main() {
 //    val sqdb = SQLiteDatabase(File("test.sqlite"))
 //    sqdb.associationCount
@@ -165,20 +167,25 @@ suspend fun main() {
             )
         }
         onCommand("tokenize", false) {
-            val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
-//            println("/tokenize $text")
-            if (text.isNotBlank()) reply(
-                it, text.tokenize(db)
-                    .joinToString (" ") { token -> if (token is MarkerToken) "${token.type.name} (${token.id})" else token.id.toString() })
-            else reply(it, "_Text is empty\\!_", MarkdownV2ParseMode)
+            val text = it.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: it.content.textSources.drop(1)
+                .flatMap { it.asText.tokenize(db) }
+            if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
+            println("/tokenize $text")
+            if (text.any { it is TextToken || it is StickerToken }) reply(
+                it, text
+                    .joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id} (${token::class.simpleName})" })
+            else reply(it, "_Result is empty\\!_\nPlease provide correct argument after the slash command, or reply to message with this command\\.", MarkdownV2ParseMode)
         }
         onCommand("untokenize", false) {
+//            println(it.content.textSources[0].botCommandTextSourceOrNull())
+            if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
             val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
+            if (text.isBlank()) reply(it, "_Result is empty\\!_\nPlease provide correct argument after the slash command\\.", MarkdownV2ParseMode)
 //            println("/untokenize $text")
-            if(text.isNotBlank())reply(it, text.split(" ")
-                .mapNotNull { text -> text.toLongOrNull()?.let { num -> db.getToken(num) } }
-                .joinToString(" ") { token -> if (token is TextToken) token.text else "" })
-            else reply(it, "_Text is empty\\!_", MarkdownV2ParseMode)
+             val tokens = text.split(" ").mapNotNull { it.toLongOrNull() }.mapNotNull { db.getToken(it) }
+            if(tokens[0] is StickerToken) replyWithSticker(it, (tokens[0] as StickerToken).sticker)
+            else if(tokens[1] is StickerToken) replyWithSticker(it, (tokens[1] as StickerToken).sticker)
+            else reply(it, tokens.joinToString(" ") { if (it is TextToken) it.text else "" })
         }
 //        onCommand("generate") {
 ////            if (it.from?.botOrNull() != null) return@onCommand
