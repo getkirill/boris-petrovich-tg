@@ -1,5 +1,6 @@
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.bot.getMe
+import dev.inmo.tgbotapi.extensions.api.getUpdates
 import dev.inmo.tgbotapi.extensions.api.send.media.sendSticker
 import dev.inmo.tgbotapi.extensions.api.send.reply
 import dev.inmo.tgbotapi.extensions.api.send.send
@@ -11,6 +12,7 @@ import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
 import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.flushAccumulatedUpdates
+import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.retrieveAccumulatedUpdates
 import dev.inmo.tgbotapi.types.ReplyParameters
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
@@ -92,9 +94,14 @@ suspend fun main() {
 //    sqdb.associationCount
     val db = InMemoryDatabase()
     val bot = telegramBot(System.getenv("TG_TOKEN"))
-
+    val updateCount = bot.getUpdates().size
+    if (updateCount > 0) {
+        bot.flushAccumulatedUpdates()
+        println("Flushed $updateCount pending updates")
+    } else {
+        println("No pending updates. Squeaky clean!")
+    }
     bot.buildBehaviourWithLongPolling {
-        flushAccumulatedUpdates()
         println(getMe())
 
         onCommand("start") {
