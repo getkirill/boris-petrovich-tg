@@ -10,6 +10,7 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onConten
 import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
+import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.flushAccumulatedUpdates
 import dev.inmo.tgbotapi.types.ReplyParameters
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
@@ -93,6 +94,7 @@ suspend fun main() {
     val bot = telegramBot(System.getenv("TG_TOKEN"))
 
     bot.buildBehaviourWithLongPolling {
+        flushAccumulatedUpdates()
         println(getMe())
 
         onCommand("start") {
