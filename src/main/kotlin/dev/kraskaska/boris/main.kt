@@ -125,11 +125,11 @@ suspend fun main() {
             """.trimIndent()
                 )
             }
-            onCommand("dev.kraskaska.boris.tokenize", false) {
+            onCommand("tokenize", false) {
                 val text = it.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: it.content.textSources.drop(1)
                     .flatMap { it.asText.tokenize(db) }
                 if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
-                println("/dev.kraskaska.boris.tokenize $text")
+                println("/tokenize $text")
                 if (text.any { it is TextToken || it is StickerToken }) reply(
                     it, text
                         .joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id} (${token::class.simpleName})" })
