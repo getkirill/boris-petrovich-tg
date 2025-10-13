@@ -1,6 +1,6 @@
 -- Token base table
 CREATE TABLE token (
-    id BIGSERIAL PRIMARY KEY AUTOINCREMENT,
+    id BIGSERIAL PRIMARY KEY,
     token_type TEXT NOT NULL CHECK (token_type IN ('marker', 'text', 'sticker'))
 );
 
