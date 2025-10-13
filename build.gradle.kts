@@ -12,7 +12,8 @@ repositories {
 dependencies {
     testImplementation(kotlin("test"))
     implementation("dev.inmo:tgbotapi:29.0.0")
-    implementation("org.xerial:sqlite-jdbc:3.50.3.0")
+    implementation("org.postgresql:postgresql:42.7.8")
+
 }
 
 tasks.test {

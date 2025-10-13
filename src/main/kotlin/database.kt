@@ -9,8 +9,26 @@ abstract class Database {
     open fun getToken(id: Long): Token? = null
     abstract fun findOrMakeTextTokenFor(segment: String): TextToken
     abstract fun findOrMakeStickerTokenFor(sticker: FileId): StickerToken
+    abstract fun findOrMakeAssociation(context: Iterable<Token>, prediction: Token): Association
 
-    abstract fun updateAssociations(tokens: Iterable<Token>)
+    open fun updateAssociations(tokens: Iterable<Token>) {
+        if (tokens.toList().isEmpty()) return
+        (2..(CONTEXT_WINDOW + 1)).forEach { window ->
+            tokens.windowed(window).forEach { context ->
+                println(
+                    "Associating context ${
+                        context.subList(
+                            0, window - 1
+                        )
+                    } with ${context[window - 1]}"
+                )
+                findOrMakeAssociation(context.subList(
+                    0, window - 1
+                ), context[window - 1]).count += 1
+            }
+        }
+//        println("Association updated.\n"+associations.joinToString("\n"))
+    }
     protected abstract val associations: Iterable<Association>
     abstract val associationCount: Int
     abstract val tokenCount: Int
@@ -82,27 +100,12 @@ open class InMemoryDatabase : Database() {
         }
     }
 
-    override fun updateAssociations(tokens: Iterable<Token>) {
-        if (tokens.toList().isEmpty()) return
-        (2..(CONTEXT_WINDOW + 1)).forEach { window ->
-            tokens.windowed(window).forEach { context ->
-                println(
-                    "Associating context ${
-                        context.subList(
-                            0, window - 1
-                        )
-                    } with ${context[window - 1]}"
-                )
-                (_associations.firstOrNull {
-                    it.context == context.subList(
-                        0, window - 1
-                    ) && it.prediction == context[window - 1]
-                } ?: Association(
-                    context.subList(0, window - 1), context[window - 1], 0
-                ).apply { _associations.add(this) }).count += 1
-            }
-        }
-//        println("Association updated.\n"+associations.joinToString("\n"))
+    override fun findOrMakeAssociation(context: Iterable<Token>, prediction: Token): Association {
+        return (_associations.firstOrNull {
+            it.context == context.toList() && it.prediction == prediction
+        } ?: Association(
+            context.toList(), prediction, 0
+        ).apply { _associations.add(this) })
     }
 
     override val associations: Iterable<Association> = _associations
@@ -111,23 +114,3 @@ open class InMemoryDatabase : Database() {
     override val tokenCount: Int
         get() = textTokenList.size + stickerTokenList.size + 2
 }
-
-//class PrimitiveFileDatabase(val file: File) : InMemoryDatabase(), AutoCloseable {
-//    init {
-//        if (file.exists()) {
-//            TODO()
-//        } else {
-//            // leave everything default
-//        }
-//    }
-//
-//    override fun close() {
-//        val stream = DataOutputStream(FileOutputStream(file))
-//        stream.writeLong(FILE_VERSION)
-//
-//    }
-//
-//    companion object {
-//        val FILE_VERSION = 20251011L
-//    }
-//}

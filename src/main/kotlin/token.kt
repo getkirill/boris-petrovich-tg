@@ -76,7 +76,7 @@ fun FileId.tokenize(db: Database): Iterable<Token> {
     return listOf(MarkerToken.START, db.findOrMakeStickerTokenFor(this), MarkerToken.END)
 }
 
-class Association(val context: List<Token>, val prediction: Token, var count: Long) {
+open class Association(val context: List<Token>, val prediction: Token, open var count: Long) {
     override fun toString(): String {
         return "Association(context=$context, prediction=$prediction, count=$count)"
     }

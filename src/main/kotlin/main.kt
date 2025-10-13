@@ -98,26 +98,27 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
 suspend fun main() {
 //    val sqdb = SQLiteDatabase(File("test.sqlite"))
 //    sqdb.associationCount
-    val db = InMemoryDatabase()
-    val bot = telegramBot(System.getenv("TG_TOKEN"))
-    val updateCount = bot.getUpdates().size
-    if (updateCount > 0) {
-        bot.flushAccumulatedUpdates()
-        println("Flushed $updateCount pending updates")
-    } else {
-        println("No pending updates. Squeaky clean!")
-    }
-    bot.buildBehaviourWithLongPolling {
-        println(getMe())
-
-        onCommand("start") {
-            reply(
-                it,
-                "Привет\\! Меня зовут Борис Петрович\\.\nЯ читаю сообщения и пытаюсь сгенерировать свои на основе известных\\!\n\n_Бот читает все сообщения которые он получает, а также может сохранять часть сообщений для допольнительного контекста во время обучения\\.\nНемедленно кикнете/заблокируйте бота если вы не согласны с этим\\._",
-                MarkdownV2ParseMode
-            )
+//    val db = InMemoryDatabase()
+    PostgresDatabase().use { db ->
+        val bot = telegramBot(System.getenv("TG_TOKEN"))
+        val updateCount = bot.getUpdates().size
+        if (updateCount > 0) {
+            bot.flushAccumulatedUpdates()
+            println("Flushed $updateCount pending updates")
+        } else {
+            println("No pending updates. Squeaky clean!")
         }
-        onContentMessage {
+        bot.buildBehaviourWithLongPolling {
+            println(getMe())
+
+            onCommand("start") {
+                reply(
+                    it,
+                    "Привет\\! Меня зовут Борис Петрович\\.\nЯ читаю сообщения и пытаюсь сгенерировать свои на основе известных\\!\n\n_Бот читает все сообщения которые он получает, а также может сохранять часть сообщений для допольнительного контекста во время обучения\\.\nНемедленно кикнете/заблокируйте бота если вы не согласны с этим\\._",
+                    MarkdownV2ParseMode
+                )
+            }
+            onContentMessage {
 //            if (it.content.text.startsWith("/") == true) return@onText
 //            val tokens = it.content.tokenize(db)
 //            db.updateAssociations(tokens)
@@ -136,8 +137,8 @@ suspend fun main() {
 //                    it.metaInfo
 //                ) else null
 //            )
-            handleInteraction(db, it)
-        }
+                handleInteraction(db, it)
+            }
 //        onSticker {
 ////            val tokens = it.content.tokenize(db)
 ////            db.updateAssociations(tokens)
@@ -158,35 +159,43 @@ suspend fun main() {
 ////            )
 //            handleInteraction(db, it)
 //        }
-        onCommand("stats") {
-            reply(
-                it, """
+            onCommand("stats") {
+                reply(
+                    it, """
                 Tokens known: ${db.tokenCount}
                 Associations known: ${db.associationCount}
             """.trimIndent()
-            )
-        }
-        onCommand("tokenize", false) {
-            val text = it.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: it.content.textSources.drop(1)
-                .flatMap { it.asText.tokenize(db) }
-            if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
-            println("/tokenize $text")
-            if (text.any { it is TextToken || it is StickerToken }) reply(
-                it, text
-                    .joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id} (${token::class.simpleName})" })
-            else reply(it, "_Result is empty\\!_\nPlease provide correct argument after the slash command, or reply to message with this command\\.", MarkdownV2ParseMode)
-        }
-        onCommand("untokenize", false) {
+                )
+            }
+            onCommand("tokenize", false) {
+                val text = it.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: it.content.textSources.drop(1)
+                    .flatMap { it.asText.tokenize(db) }
+                if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
+                println("/tokenize $text")
+                if (text.any { it is TextToken || it is StickerToken }) reply(
+                    it, text
+                        .joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id} (${token::class.simpleName})" })
+                else reply(
+                    it,
+                    "_Result is empty\\!_\nPlease provide correct argument after the slash command, or reply to message with this command\\.",
+                    MarkdownV2ParseMode
+                )
+            }
+            onCommand("untokenize", false) {
 //            println(it.content.textSources[0].botCommandTextSourceOrNull())
-            if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
-            val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
-            if (text.isBlank()) reply(it, "_Result is empty\\!_\nPlease provide correct argument after the slash command\\.", MarkdownV2ParseMode)
+                if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
+                val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
+                if (text.isBlank()) reply(
+                    it,
+                    "_Result is empty\\!_\nPlease provide correct argument after the slash command\\.",
+                    MarkdownV2ParseMode
+                )
 //            println("/untokenize $text")
-             val tokens = text.split(" ").mapNotNull { it.toLongOrNull() }.mapNotNull { db.getToken(it) }
-            if(tokens[0] is StickerToken) replyWithSticker(it, (tokens[0] as StickerToken).sticker)
-            else if(tokens[1] is StickerToken) replyWithSticker(it, (tokens[1] as StickerToken).sticker)
-            else reply(it, tokens.joinToString(" ") { if (it is TextToken) it.text else "" })
-        }
+                val tokens = text.split(" ").mapNotNull { it.toLongOrNull() }.mapNotNull { db.getToken(it) }
+                if (tokens[0] is StickerToken) replyWithSticker(it, (tokens[0] as StickerToken).sticker)
+                else if (tokens[1] is StickerToken) replyWithSticker(it, (tokens[1] as StickerToken).sticker)
+                else reply(it, tokens.joinToString(" ") { if (it is TextToken) it.text else "" })
+            }
 //        onCommand("generate") {
 ////            if (it.from?.botOrNull() != null) return@onCommand
 ////
@@ -208,5 +217,6 @@ suspend fun main() {
 //            handleInteraction(db, it)
 //        }
 //        retrieveAccumulatedUpdates(this).join()
-    }.join()
+        }.join()
+    }
 }
