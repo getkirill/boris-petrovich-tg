@@ -1,3 +1,5 @@
+package dev.kraskaska.boris
+
 import dev.inmo.tgbotapi.requests.abstracts.FileId
 import dev.inmo.tgbotapi.types.chat.Chat
 import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
@@ -27,7 +29,7 @@ abstract class Database {
                 ), context[window - 1]).count += 1
             }
         }
-//        println("Association updated.\n"+associations.joinToString("\n"))
+//        println("dev.kraskaska.boris.Association updated.\n"+associations.joinToString("\n"))
     }
     protected abstract val associations: Iterable<Association>
     abstract val associationCount: Int

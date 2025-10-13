@@ -1,4 +1,5 @@
-import org.postgresql.jdbc.PgArray
+package dev.kraskaska.boris
+
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement

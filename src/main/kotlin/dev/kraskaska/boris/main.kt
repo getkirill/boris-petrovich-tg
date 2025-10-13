@@ -1,3 +1,5 @@
+package dev.kraskaska.boris
+
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.bot.getMe
 import dev.inmo.tgbotapi.extensions.api.getUpdates
@@ -14,12 +16,14 @@ import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
 import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.flushAccumulatedUpdates
 import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.retrieveAccumulatedUpdates
+import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.startGettingOfUpdatesByLongPolling
 import dev.inmo.tgbotapi.types.ReplyParameters
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
 import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
+import kotlinx.coroutines.delay
 import kotlin.random.Random
 
 @OptIn(RiskFeature::class, PreviewFeature::class)
@@ -45,7 +49,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val shouldAcknowledge = inReplyToMe || hasMentionOfMe || inDirectMessages || hasMyGenerateCommand || passesChance
     // TODO: reintroduce message caching for training
     val tokens =
-        /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.tokenize(db).toList().takeLast(Database.CONTEXT_WINDOW) + message.content.tokenize(db) } ?: */
+        /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
         message.content.tokenize(db)
     if (!hasCommands) db.updateAssociations(tokens)
     if (db.associationCount <= 0) {
@@ -96,19 +100,11 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
 
 @OptIn(PreviewFeature::class)
 suspend fun main() {
-//    val sqdb = SQLiteDatabase(File("test.sqlite"))
-//    sqdb.associationCount
-//    val db = InMemoryDatabase()
     PostgresDatabase().use { db ->
         val bot = telegramBot(System.getenv("TG_TOKEN"))
-        val updateCount = bot.getUpdates().size
-        if (updateCount > 0) {
-            bot.flushAccumulatedUpdates()
-            println("Flushed $updateCount pending updates")
-        } else {
-            println("No pending updates. Squeaky clean!")
-        }
-        bot.buildBehaviourWithLongPolling {
+        // eldritch horrrors
+        bot.getUpdates().lastOrNull()?.updateId?.let { bot.getUpdates(it + 1) }
+        bot.buildBehaviourWithLongPolling() {
             println(getMe())
 
             onCommand("start") {
@@ -119,46 +115,8 @@ suspend fun main() {
                 )
             }
             onContentMessage {
-//            if (it.content.text.startsWith("/") == true) return@onText
-//            val tokens = it.content.tokenize(db)
-//            db.updateAssociations(tokens)
-//            val prediction = db.predictUntilEnd(listOf(MarkerToken.START))
-//            if (prediction[1] is StickerToken) sendSticker(
-//                it.chat,
-//                (prediction[1] as StickerToken).sticker,
-//                replyParameters = if (it.replyTo?.optionallyFromUserMessageOrNull()?.from?.id == getMe().id) ReplyParameters(
-//                    it.metaInfo
-//                ) else null
-//            )
-//            else send(
-//                it.chat,
-//                prediction.joinToString(" ") { if (it is TextToken) it.text else "" },
-//                replyParameters = if (it.replyTo?.optionallyFromUserMessageOrNull()?.from?.id == getMe().id) ReplyParameters(
-//                    it.metaInfo
-//                ) else null
-//            )
                 handleInteraction(db, it)
             }
-//        onSticker {
-////            val tokens = it.content.tokenize(db)
-////            db.updateAssociations(tokens)
-////            val prediction = db.predictUntilEnd(listOf(MarkerToken.START))
-////            if (prediction[1] is StickerToken) sendSticker(
-////                it.chat,
-////                (prediction[1] as StickerToken).sticker,
-////                replyParameters = if (it.replyTo?.optionallyFromUserMessageOrNull()?.from?.id == getMe().id) ReplyParameters(
-////                    it.metaInfo
-////                ) else null
-////            )
-////            else send(
-////                it.chat,
-////                prediction.joinToString(" ") { if (it is TextToken) it.text else "" },
-////                replyParameters = if (it.replyTo?.optionallyFromUserMessageOrNull()?.from?.id == getMe().id) ReplyParameters(
-////                    it.metaInfo
-////                ) else null
-////            )
-//            handleInteraction(db, it)
-//        }
             onCommand("stats") {
                 reply(
                     it, """
@@ -167,11 +125,11 @@ suspend fun main() {
             """.trimIndent()
                 )
             }
-            onCommand("tokenize", false) {
+            onCommand("dev.kraskaska.boris.tokenize", false) {
                 val text = it.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: it.content.textSources.drop(1)
                     .flatMap { it.asText.tokenize(db) }
                 if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
-                println("/tokenize $text")
+                println("/dev.kraskaska.boris.tokenize $text")
                 if (text.any { it is TextToken || it is StickerToken }) reply(
                     it, text
                         .joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id} (${token::class.simpleName})" })
@@ -196,29 +154,8 @@ suspend fun main() {
                 else if (tokens[1] is StickerToken) replyWithSticker(it, (tokens[1] as StickerToken).sticker)
                 else reply(
                     it,
-                    tokens.joinToString(" ") { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if(it is MarkerToken) "[marker ${it.type.name}]" else "" })
+                    tokens.joinToString(" ") { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if (it is MarkerToken) "[marker ${it.type.name}]" else "" })
             }
-//        onCommand("generate") {
-////            if (it.from?.botOrNull() != null) return@onCommand
-////
-////            val prediction = db.predictUntilEnd(listOf(MarkerToken.START))
-////            if (prediction[1] is StickerToken) sendSticker(
-////                it.chat,
-////                (prediction[1] as StickerToken).sticker,
-////                replyParameters = if (it.replyTo?.optionallyFromUserMessageOrNull()?.from?.id == getMe().id) ReplyParameters(
-////                    it.metaInfo
-////                ) else null
-////            )
-////            else send(
-////                it.chat,
-////                prediction.joinToString(" ") { if (it is TextToken) it.text else "" },
-////                replyParameters = if (it.replyTo?.optionallyFromUserMessageOrNull()?.from?.id == getMe().id) ReplyParameters(
-////                    it.metaInfo
-////                ) else null
-////            )
-//            handleInteraction(db, it)
-//        }
-//        retrieveAccumulatedUpdates(this).join()
         }.join()
     }
 }

@@ -1,3 +1,5 @@
+package dev.kraskaska.boris
+
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.file_id
 import dev.inmo.tgbotapi.requests.abstracts.FileId
 import dev.inmo.tgbotapi.types.message.content.MessageContent
@@ -27,35 +29,35 @@ class MarkerToken(override val id: Long, val type: MarkerType) : Token() {
     }
 
     override fun toString(): String {
-        return "MarkerToken(id=$id, type=$type)"
+        return "dev.kraskaska.boris.MarkerToken(id=$id, type=$type)"
     }
 
 }
 
 class TextToken(override val id: Long, val text: String) : Token() {
     override fun toString(): String {
-        return "TextToken(id=$id, text='$text')"
+        return "dev.kraskaska.boris.TextToken(id=$id, text='$text')"
     }
 }
 class StickerToken(override val id: Long, val sticker: FileId) : Token() {
     override fun toString(): String {
-        return "StickerToken(id=$id, sticker=$sticker)"
+        return "dev.kraskaska.boris.StickerToken(id=$id, sticker=$sticker)"
     }
 }
 
-//fun Iterable<Token>.collectIntoTelegramMessage(): RegularTextSource {
+//fun Iterable<dev.kraskaska.boris.Token>.collectIntoTelegramMessage(): RegularTextSource {
 //    val list = toMutableList()
 //    println(list)
-//    if (list.first() is MarkerToken && (list.first() as MarkerToken).type == MarkerToken.MarkerType.START) list.removeFirst()
-//    if (list.last() is MarkerToken && (list.last() as MarkerToken).type == MarkerToken.MarkerType.END) list.removeLast()
+//    if (list.first() is dev.kraskaska.boris.MarkerToken && (list.first() as dev.kraskaska.boris.MarkerToken).type == dev.kraskaska.boris.MarkerToken.MarkerType.START) list.removeFirst()
+//    if (list.last() is dev.kraskaska.boris.MarkerToken && (list.last() as dev.kraskaska.boris.MarkerToken).type == dev.kraskaska.boris.MarkerToken.MarkerType.END) list.removeLast()
 //    println(list)
-//    println(list.joinToString { if (it is TextToken) it.text else "" })
-////    if(list.any { it is StickerToken }) {
+//    println(list.joinToString { if (it is dev.kraskaska.boris.TextToken) it.text else "" })
+////    if(list.any { it is dev.kraskaska.boris.StickerToken }) {
 ////        if(list.size > 1)
-////            throw IllegalStateException("Sticker token ${list.first { it is StickerToken }.id} must be on its own!")
-////        val sticker = list.first { it is StickerToken } as StickerToken
+////            throw IllegalStateException("Sticker token ${list.first { it is dev.kraskaska.boris.StickerToken }.id} must be on its own!")
+////        val sticker = list.first { it is dev.kraskaska.boris.StickerToken } as dev.kraskaska.boris.StickerToken
 ////    }
-//    val txt = list.joinToString { if (it is TextToken) it.text else "" }
+//    val txt = list.joinToString { if (it is dev.kraskaska.boris.TextToken) it.text else "" }
 //    return RegularTextSource(txt)
 //}
 
@@ -78,7 +80,7 @@ fun FileId.tokenize(db: Database): Iterable<Token> {
 
 open class Association(val context: List<Token>, val prediction: Token, open var count: Long) {
     override fun toString(): String {
-        return "Association(context=$context, prediction=$prediction, count=$count)"
+        return "dev.kraskaska.boris.Association(context=$context, prediction=$prediction, count=$count)"
     }
 
     override fun equals(other: Any?): Boolean {

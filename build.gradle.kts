@@ -1,5 +1,7 @@
 plugins {
     kotlin("jvm") version "2.2.10"
+    id("com.gradleup.shadow") version "9.2.2"
+    application
 }
 
 group = "dev.kraskaska"
@@ -13,7 +15,6 @@ dependencies {
     testImplementation(kotlin("test"))
     implementation("dev.inmo:tgbotapi:29.0.0")
     implementation("org.postgresql:postgresql:42.7.8")
-
 }
 
 tasks.test {
@@ -21,4 +22,7 @@ tasks.test {
 }
 kotlin {
     jvmToolchain(21)
+}
+application {
+    mainClass = "dev.kraskaska.boris.MainKt"
 }

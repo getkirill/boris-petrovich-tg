@@ -1,3 +1,5 @@
+package dev.kraskaska.boris
+
 import dev.inmo.tgbotapi.requests.abstracts.FileId
 import dev.inmo.tgbotapi.types.chat.Chat
 import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
@@ -186,11 +188,11 @@ class PostgresDatabase(
             DbAssociation(
                 (getArray("context").array as Array<Long>).map { tokenId ->
                     getToken(tokenId)
-                        ?: error("Token $tokenId doesn't exist but is referred in association $associationId context.")
+                        ?: error("dev.kraskaska.boris.Token $tokenId doesn't exist but is referred in association $associationId context.")
                 }.toList(),
                 getLong("prediction").let { tokenId ->
                     getToken(tokenId)
-                        ?: error("Token $tokenId doesn't exist but is referred in association $associationId prediction.")
+                        ?: error("dev.kraskaska.boris.Token $tokenId doesn't exist but is referred in association $associationId prediction.")
                 }, getLong("count")
             ) {
                 conn.execute("UPDATE association SET count = ? WHERE id = ?;") {
