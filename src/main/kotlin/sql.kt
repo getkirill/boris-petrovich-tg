@@ -36,7 +36,12 @@ class PostgresDatabase(
     }
 
     override fun findOrMakeTextTokenFor(segment: String): TextToken =
-        conn.querySingle("SELECT id FROM text_token WHERE text = ?;", { setString(1, segment) }) { TextToken(getLong(1), segment) }
+        conn.querySingle("SELECT id FROM text_token WHERE text = ?;", { setString(1, segment) }) {
+            TextToken(
+                getLong(1),
+                segment
+            )
+        }
             ?: conn.querySingle(
                 """
                 WITH inserted_token AS (
@@ -88,14 +93,14 @@ class PostgresDatabase(
         if (!conn.isTrue(
                 "SELECT EXISTS(SELECT 1 FROM association WHERE context @> ? AND prediction = ?);"
             ) {
-                setArray(1, conn.conn.createArrayOf("BIGINT", context.map {it.id}.toList().toTypedArray()))
+                setArray(1, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                 setLong(2, prediction.id)
             }
         ) {
             conn.execute(
                 "INSERT INTO association(context,prediction,count) VALUES (?,?,0);"
             ) {
-                setArray(1, conn.conn.createArrayOf("BIGINT", context.map {it.id}.toList().toTypedArray()))
+                setArray(1, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                 setLong(2, prediction.id)
             }
         }
@@ -105,7 +110,7 @@ class PostgresDatabase(
             conn.querySingle(
                 "SELECT count FROM association WHERE context @> ? AND prediction = ?",
                 {
-                    setArray(1, conn.conn.createArrayOf("BIGINT", context.map {it.id}.toList().toTypedArray()))
+                    setArray(1, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                     setLong(2, prediction.id)
                 }
             ) { getLong(1) }!!
@@ -114,7 +119,7 @@ class PostgresDatabase(
                 "UPDATE association SET count = ? WHERE context @> ? AND prediction = ?;"
             ) {
                 setLong(1, it)
-                setArray(2, conn.conn.createArrayOf("BIGINT", context.map {it.id}.toList().toTypedArray()))
+                setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                 setLong(3, prediction.id)
             }
         }
@@ -133,7 +138,9 @@ class PostgresDatabase(
                         )
                     }
 
-                    "sticker" -> conn.querySingle("SELECT sticker FROM sticker_token WHERE id = ?;", { setLong(1, id) }) {
+                    "sticker" -> conn.querySingle(
+                        "SELECT sticker FROM sticker_token WHERE id = ?;",
+                        { setLong(1, id) }) {
                         StickerToken(
                             id,
                             FileId(getString("sticker"))
@@ -142,6 +149,29 @@ class PostgresDatabase(
 
                     "marker" -> error("All possible marker tokens were handled before reaching database.")
                     else -> error("Impossible token type $token for $id")
+                }
+            }
+
+    override fun possiblePredictions(context: Iterable<Token>): Iterable<Association> =
+        if (context.last() == MarkerToken.END) emptyList() else
+            conn.query("SELECT prediction, count FROM association WHERE context @> ?;", {
+                setArray(
+                    1,
+                    conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray())
+                )
+            }) {
+                DbAssociation(
+                    context.toList(),
+                    getToken(getLong(1)) ?: error("Could not find token while getting possible predictions!"),
+                    getLong(2)
+                ) {
+                    conn.execute(
+                        "UPDATE association SET count = ? WHERE context @> ? AND prediction = ?;"
+                    ) {
+                        setLong(1, it)
+                        setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
+                        setLong(3, prediction.id)
+                    }
                 }
             }
 

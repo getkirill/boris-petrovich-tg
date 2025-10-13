@@ -33,7 +33,7 @@ abstract class Database {
     abstract val associationCount: Int
     abstract val tokenCount: Int
 
-    open fun possiblePredictions(context: Iterable<Token>) =
+    open fun possiblePredictions(context: Iterable<Token>): Iterable<Association> =
         if (context.last() == MarkerToken.END) emptyList() else
             associations.filter { it.context.toList() == context.toList() }
 
@@ -47,7 +47,7 @@ abstract class Database {
         do {
             for (window in CONTEXT_WINDOW.coerceAtMost(list.size) downTo 1) {
                 println("Possible predictions ($window): ${possiblePredictions(list.takeLast(window)).map { "${it.prediction} (${it.count})" }}")
-                if (possiblePredictions(list.takeLast(window)).isNotEmpty()) {
+                if (possiblePredictions(list.takeLast(window)).toList().isNotEmpty()) {
                     list += predictToken(list.takeLast(window)).prediction
                     break
                 }
