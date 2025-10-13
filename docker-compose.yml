@@ -14,7 +14,6 @@ services:
 
   app:
     image: borispetrovich:latest
-    container_name: my-app
     restart: unless-stopped
     depends_on:
       - db
