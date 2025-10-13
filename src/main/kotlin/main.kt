@@ -194,7 +194,9 @@ suspend fun main() {
                 val tokens = text.split(" ").mapNotNull { it.toLongOrNull() }.mapNotNull { db.getToken(it) }
                 if (tokens[0] is StickerToken) replyWithSticker(it, (tokens[0] as StickerToken).sticker)
                 else if (tokens[1] is StickerToken) replyWithSticker(it, (tokens[1] as StickerToken).sticker)
-                else reply(it, tokens.joinToString(" ") { if (it is TextToken) it.text else "" })
+                else reply(
+                    it,
+                    tokens.joinToString(" ") { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if(it is MarkerToken) "[marker ${it.type.name}]" else "" })
             }
 //        onCommand("generate") {
 ////            if (it.from?.botOrNull() != null) return@onCommand

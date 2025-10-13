@@ -59,7 +59,7 @@ class PostgresDatabase(
             }!!
 
     override fun findOrMakeStickerTokenFor(sticker: FileId): StickerToken =
-        conn.querySingle("SELECT id FROM text_token WHERE text = ?;", { setString(1, sticker.fileId) }) {
+        conn.querySingle("SELECT id FROM sticker_token WHERE sticker = ?;", { setString(1, sticker.fileId) }) {
             StickerToken(
                 getLong(1),
                 sticker
@@ -69,10 +69,10 @@ class PostgresDatabase(
                 """
                 WITH new_token AS (
                     INSERT INTO token (token_type)
-                    VALUES ('text')
+                    VALUES ('sticker')
                     RETURNING id
                 )
-                INSERT INTO text_token (id, text)
+                INSERT INTO sticker_token (id, sticker)
                 SELECT id, ?
                 FROM new_token
                 RETURNING id;
@@ -133,7 +133,7 @@ class PostgresDatabase(
                         )
                     }
 
-                    "sticker" -> conn.querySingle("SELECT text FROM text_token WHERE id = ?;", { setLong(1, id) }) {
+                    "sticker" -> conn.querySingle("SELECT sticker FROM sticker_token WHERE id = ?;", { setLong(1, id) }) {
                         StickerToken(
                             id,
                             FileId(getString("sticker"))
