@@ -93,7 +93,7 @@ class PostgresDatabase(
 
     override fun findOrMakeAssociation(context: Iterable<Token>, prediction: Token): Association {
         if (!conn.isTrue(
-                "SELECT EXISTS(SELECT 1 FROM association WHERE context @> ? AND prediction = ?);"
+                "SELECT EXISTS(SELECT 1 FROM association WHERE context = ? AND prediction = ?);"
             ) {
                 setArray(1, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                 setLong(2, prediction.id)
@@ -110,7 +110,7 @@ class PostgresDatabase(
             context.toList(),
             prediction,
             conn.querySingle(
-                "SELECT count FROM association WHERE context @> ? AND prediction = ?",
+                "SELECT count FROM association WHERE context = ? AND prediction = ?",
                 {
                     setArray(1, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                     setLong(2, prediction.id)
@@ -118,7 +118,7 @@ class PostgresDatabase(
             ) { getLong(1) }!!
         ) {
             conn.execute(
-                "UPDATE association SET count = ? WHERE context @> ? AND prediction = ?;"
+                "UPDATE association SET count = ? WHERE context = ? AND prediction = ?;"
             ) {
                 setLong(1, it)
                 setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
@@ -156,7 +156,7 @@ class PostgresDatabase(
 
     override fun possiblePredictions(context: Iterable<Token>): Iterable<Association> =
         if (context.last() == MarkerToken.END) emptyList() else
-            conn.query("SELECT prediction, count FROM association WHERE context @> ?;", {
+            conn.query("SELECT prediction, count FROM association WHERE context = ?;", {
                 setArray(
                     1,
                     conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray())
@@ -168,7 +168,7 @@ class PostgresDatabase(
                     getLong(2)
                 ) {
                     conn.execute(
-                        "UPDATE association SET count = ? WHERE context @> ? AND prediction = ?;"
+                        "UPDATE association SET count = ? WHERE context = ? AND prediction = ?;"
                     ) {
                         setLong(1, it)
                         setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
