@@ -14,16 +14,12 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onConten
 import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
-import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.flushAccumulatedUpdates
-import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.retrieveAccumulatedUpdates
-import dev.inmo.tgbotapi.extensions.utils.updates.retrieving.startGettingOfUpdatesByLongPolling
 import dev.inmo.tgbotapi.types.ReplyParameters
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
 import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
-import kotlinx.coroutines.delay
 import kotlin.random.Random
 
 @OptIn(RiskFeature::class, PreviewFeature::class)
@@ -50,7 +46,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     // TODO: reintroduce message caching for training
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
-        message.content.tokenize(db)
+        if (!hasCommands) message.content.tokenize(db) else emptyList()
     if (!hasCommands) db.updateAssociations(tokens)
     if (db.associationCount <= 0) {
         reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
