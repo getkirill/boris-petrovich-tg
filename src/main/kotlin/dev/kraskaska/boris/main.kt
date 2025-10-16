@@ -179,7 +179,9 @@ suspend fun main() {
                         val worstPrediction = predictions.minBy { it.count }
                         val bestPrediction = predictions.maxBy { it.count }
                         val median =
-                            predictions.first { it.count == (worstPrediction.count + bestPrediction.count) / 2 }
+                            predictions.first {
+                                ((worstPrediction.count + bestPrediction.count) / 2).let { median -> it.count == median || it.count - 1 == median || it.count + 1 == median }
+                            }
                         s.appendLine(
                             "Worst chance - ${worstPrediction.prediction.id} - ${
                                 String.format(
@@ -212,7 +214,11 @@ suspend fun main() {
                 if (final.length > 4096) {
                     reply(
                         it,
-                        "Too many predictions to fit in 4096 characters. There are $totalPredictions possible predictions (context windows 1-${CONTEXT_WINDOW.coerceAtMost(tokens.count())})"
+                        "Too many predictions to fit in 4096 characters. There are $totalPredictions possible predictions (context windows 1-${
+                            CONTEXT_WINDOW.coerceAtMost(
+                                tokens.count()
+                            )
+                        })"
                     )
                 } else {
                     reply(it, final)
