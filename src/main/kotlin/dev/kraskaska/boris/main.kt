@@ -20,6 +20,8 @@ import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
 import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
+import dev.kraskaska.boris.Database.Companion.CONTEXT_WINDOW
+import java.text.DecimalFormat
 import kotlin.random.Random
 
 @OptIn(RiskFeature::class, PreviewFeature::class)
@@ -151,6 +153,70 @@ suspend fun main() {
                 else reply(
                     it,
                     tokens.joinToString(" ") { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if (it is MarkerToken) "[marker ${it.type.name}]" else "" })
+            }
+            onCommand("predict", false) {
+//            println(it.content.textSources[0].botCommandTextSourceOrNull())
+                if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
+                val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
+                if (text.isBlank()) reply(
+                    it,
+                    "_Result is empty\\!_\nPlease provide correct argument after the slash command\\.",
+                    MarkdownV2ParseMode
+                )
+//            println("/untokenize $text")
+                val tokens = text.split(" ").mapNotNull { it.toLongOrNull() }.mapNotNull { db.getToken(it) }
+                val s = StringBuilder()
+                var totalPredictions = 0
+                s.appendLine("Possible predictions for given context:")
+                (1..CONTEXT_WINDOW.coerceAtMost(tokens.count())).forEach { window ->
+                    s.appendLine("Window $window:")
+                    db.possiblePredictions(tokens.takeLast(window)).let { predictions ->
+                        totalPredictions += predictions.count()
+                        predictions.forEach { prediction ->
+                            s.appendLine("${prediction.prediction.id} - ${prediction.prediction}")
+                        }
+                        val totalCount = predictions.sumOf { it.count }
+                        val worstPrediction = predictions.minBy { it.count }
+                        val bestPrediction = predictions.maxBy { it.count }
+                        val median =
+                            predictions.first { it.count == (worstPrediction.count + bestPrediction.count) / 2 }
+                        s.appendLine(
+                            "Worst chance - ${worstPrediction.prediction.id} - ${
+                                String.format(
+                                    "%.2f",
+                                    worstPrediction.count.toDouble() / totalCount * 100
+                                )
+                            }%"
+                        )
+                        s.appendLine(
+                            "Best chance - ${bestPrediction.prediction.id} - ${
+                                String.format(
+                                    "%.2f",
+                                    bestPrediction.count.toDouble() / totalCount * 100
+                                )
+                            }%"
+                        )
+                        s.appendLine(
+                            "Median chance - ${median.prediction.id} - ${
+                                String.format(
+                                    "%.2f",
+                                    median.count.toDouble() / totalCount * 100
+                                )
+                            }%"
+                        )
+                    }
+                }
+                s.appendLine()
+                s.appendLine("Total predictions: $totalPredictions")
+                val final = s.toString()
+                if (final.length > 4096) {
+                    reply(
+                        it,
+                        "Too many predictions to fit in 4096 characters. There are $totalPredictions possible predictions (context windows 1-${CONTEXT_WINDOW.coerceAtMost(tokens.count())})"
+                    )
+                } else {
+                    reply(it, final)
+                }
             }
         }.join()
     }

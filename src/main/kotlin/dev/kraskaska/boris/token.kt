@@ -29,19 +29,19 @@ class MarkerToken(override val id: Long, val type: MarkerType) : Token() {
     }
 
     override fun toString(): String {
-        return "dev.kraskaska.boris.MarkerToken(id=$id, type=$type)"
+        return "MarkerToken(id=$id, type=$type)"
     }
 
 }
 
 class TextToken(override val id: Long, val text: String) : Token() {
     override fun toString(): String {
-        return "dev.kraskaska.boris.TextToken(id=$id, text='$text')"
+        return "TextToken(id=$id, text='$text')"
     }
 }
 class StickerToken(override val id: Long, val sticker: FileId) : Token() {
     override fun toString(): String {
-        return "dev.kraskaska.boris.StickerToken(id=$id, sticker=$sticker)"
+        return "StickerToken(id=$id, sticker=$sticker)"
     }
 }
 
@@ -80,7 +80,7 @@ fun FileId.tokenize(db: Database): Iterable<Token> {
 
 open class Association(val context: List<Token>, val prediction: Token, open var count: Long) {
     override fun toString(): String {
-        return "dev.kraskaska.boris.Association(context=$context, prediction=$prediction, count=$count)"
+        return "Association(context=$context, prediction=$prediction, count=$count)"
     }
 
     override fun equals(other: Any?): Boolean {
