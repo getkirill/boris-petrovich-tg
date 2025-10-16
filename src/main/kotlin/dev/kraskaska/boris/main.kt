@@ -3,6 +3,7 @@ package dev.kraskaska.boris
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.bot.getMe
 import dev.inmo.tgbotapi.extensions.api.getUpdates
+import dev.inmo.tgbotapi.extensions.api.send.media.sendDocument
 import dev.inmo.tgbotapi.extensions.api.send.media.sendSticker
 import dev.inmo.tgbotapi.extensions.api.send.reply
 import dev.inmo.tgbotapi.extensions.api.send.replyWithSticker
@@ -14,6 +15,8 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onConten
 import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
+import dev.inmo.tgbotapi.requests.abstracts.InputFile
+import dev.inmo.tgbotapi.requests.abstracts.toInputFile
 import dev.inmo.tgbotapi.types.ReplyParameters
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
@@ -21,8 +24,13 @@ import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.kraskaska.boris.Database.Companion.CONTEXT_WINDOW
+import kotlinx.io.Buffer
+import kotlinx.io.Source
+import kotlinx.io.asSource
+import kotlinx.io.buffered
 import java.text.DecimalFormat
 import kotlin.random.Random
+
 
 @OptIn(RiskFeature::class, PreviewFeature::class)
 suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: CommonMessage<MessageContent>) {
@@ -65,16 +73,13 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
 //        println("hasMyGenerateCommand: $hasMyGenerateCommand")
         return
     }
-    val replyInfo =
-        if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
-            message.metaInfo
-        ) else null
+    val replyInfo = if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
+        message.metaInfo
+    ) else null
     val prediction = db.predictUntilEnd(tokens + listOf(MarkerToken.START)).drop(tokens.toList().size)
     println("Final prediction: $prediction")
     if (prediction[1] is StickerToken) sendSticker(
-        message.chat,
-        (prediction[1] as StickerToken).sticker,
-        replyParameters = replyInfo
+        message.chat, (prediction[1] as StickerToken).sticker, replyParameters = replyInfo
     )
     else {
         val textualPrediction = prediction.joinToString(" ") { if (it is TextToken) it.text else "" }
@@ -87,12 +92,9 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
                 replyParameters = replyInfo,
             )
 //            println(textualPrediction)
-        } else
-            send(
-                message.chat,
-                textualPrediction,
-                replyParameters = replyInfo
-            )
+        } else send(
+            message.chat, textualPrediction, replyParameters = replyInfo
+        )
     }
 }
 
@@ -129,8 +131,8 @@ suspend fun main() {
                 if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
                 println("/tokenize $text")
                 if (text.any { it is TextToken || it is StickerToken }) reply(
-                    it, text
-                        .joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id} (${token::class.simpleName})" })
+                    it,
+                    text.joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id} (${token::class.simpleName})" })
                 else reply(
                     it,
                     "_Result is empty\\!_\nPlease provide correct argument after the slash command, or reply to message with this command\\.",
@@ -169,6 +171,7 @@ suspend fun main() {
                 var totalPredictions = 0
                 s.appendLine("Possible predictions for given context:")
                 (1..CONTEXT_WINDOW.coerceAtMost(tokens.count())).forEach { window ->
+                    s.appendLine()
                     s.appendLine("Window $window:")
                     db.possiblePredictions(tokens.takeLast(window)).let { predictions ->
                         totalPredictions += predictions.count()
@@ -178,31 +181,27 @@ suspend fun main() {
                         val totalCount = predictions.sumOf { it.count }
                         val worstPrediction = predictions.minBy { it.count }
                         val bestPrediction = predictions.maxBy { it.count }
-                        val median =
-                            predictions.first {
-                                ((worstPrediction.count + bestPrediction.count) / 2).let { median -> it.count == median || it.count - 1 == median || it.count + 1 == median }
-                            }
+                        val median = predictions.first {
+                            ((worstPrediction.count + bestPrediction.count) / 2).let { median -> it.count == median || it.count - 1 == median || it.count + 1 == median }
+                        }
                         s.appendLine(
                             "Worst chance - ${worstPrediction.prediction.id} - ${
                                 String.format(
-                                    "%.2f",
-                                    worstPrediction.count.toDouble() / totalCount * 100
+                                    "%.2f", worstPrediction.count.toDouble() / totalCount * 100
                                 )
                             }%"
                         )
                         s.appendLine(
                             "Best chance - ${bestPrediction.prediction.id} - ${
                                 String.format(
-                                    "%.2f",
-                                    bestPrediction.count.toDouble() / totalCount * 100
+                                    "%.2f", bestPrediction.count.toDouble() / totalCount * 100
                                 )
                             }%"
                         )
                         s.appendLine(
                             "Median chance - ${median.prediction.id} - ${
                                 String.format(
-                                    "%.2f",
-                                    median.count.toDouble() / totalCount * 100
+                                    "%.2f", median.count.toDouble() / totalCount * 100
                                 )
                             }%"
                         )
@@ -218,8 +217,16 @@ suspend fun main() {
                             CONTEXT_WINDOW.coerceAtMost(
                                 tokens.count()
                             )
-                        })"
+                        }). Full excerpt will be sent as file as soon as possible."
                     )
+                    try {
+                        sendDocument(
+                            it.chat,
+                            InputFile.fromInput("predictions.txt") { final.byteInputStream().asSource().buffered() })
+                    } catch (e: Throwable) {
+                        reply(it, "There was an error in sending the document.")
+                        e.printStackTrace()
+                    }
                 } else {
                     reply(it, final)
                 }
