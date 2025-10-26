@@ -16,7 +16,6 @@ import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
 import dev.inmo.tgbotapi.requests.abstracts.InputFile
-import dev.inmo.tgbotapi.requests.abstracts.toInputFile
 import dev.inmo.tgbotapi.types.ReplyParameters
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
@@ -24,11 +23,8 @@ import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.kraskaska.boris.Database.Companion.CONTEXT_WINDOW
-import kotlinx.io.Buffer
-import kotlinx.io.Source
 import kotlinx.io.asSource
 import kotlinx.io.buffered
-import java.text.DecimalFormat
 import kotlin.random.Random
 
 
@@ -132,10 +128,10 @@ suspend fun main() {
                 println("/tokenize $text")
                 if (text.any { it is TextToken || it is StickerToken }) reply(
                     it,
-                    text.joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id} (${token::class.simpleName})" })
+                    text.joinToString(" ") { token -> if (token is MarkerToken) "${token.id} (${token.type.name})" else "${token.id}" })
                 else reply(
                     it,
-                    "_Result is empty\\!_\nPlease provide correct argument after the slash command, or reply to message with this command\\.",
+                    "_No valid argument\\!_\nPlease provide correct argument after the slash command, or reply to message with this command\\.",
                     MarkdownV2ParseMode
                 )
             }
@@ -145,7 +141,7 @@ suspend fun main() {
                 val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
                 if (text.isBlank()) reply(
                     it,
-                    "_Result is empty\\!_\nPlease provide correct argument after the slash command\\.",
+                    "_No valid argument\\!_\nPlease provide correct argument after the slash command\\.",
                     MarkdownV2ParseMode
                 )
 //            println("/untokenize $text")
@@ -162,7 +158,7 @@ suspend fun main() {
                 val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
                 if (text.isBlank()) reply(
                     it,
-                    "_Result is empty\\!_\nPlease provide correct argument after the slash command\\.",
+                    "_No valid argument\\!_\nPlease provide correct argument after the slash command\\.",
                     MarkdownV2ParseMode
                 )
 //            println("/untokenize $text")
@@ -223,6 +219,64 @@ suspend fun main() {
                         sendDocument(
                             it.chat,
                             InputFile.fromInput("predictions.txt") { final.byteInputStream().asSource().buffered() })
+                    } catch (e: Throwable) {
+                        reply(it, "There was an error in sending the document.")
+                        e.printStackTrace()
+                    }
+                } else {
+                    reply(it, final)
+                }
+            }
+            onCommand("unpredict", false) {
+//            println(it.content.textSources[0].botCommandTextSourceOrNull())
+                if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
+                val text = it.content.textSources.drop(1).first().asText.trim()
+                if (text.isBlank()) reply(
+                    it,
+                    "_No valid argument\\!_\nPlease provide correct argument after the slash command\\.",
+                    MarkdownV2ParseMode
+                )
+                println("/unpredict $text")
+                val prediction = text.toLongOrNull()?.let { db.getToken(it) }!!
+                val s = StringBuilder()
+                var totalPredictions = 0
+                s.appendLine("Possible contexts for given prediction:")
+                db.possibleContexts(prediction).let { associations ->
+                    totalPredictions += associations.count()
+                    associations.forEach { prediction ->
+                        s.appendLine(prediction.context.joinToString(" ") { token -> if (token is MarkerToken) "[marker ${token.type.name}]" else if (token is StickerToken) "[sticker ${token.id}]" else if (token is TextToken) token.text else "${token.id}" } + " (${prediction.count})")
+                    }
+                    val totalCount = associations.sumOf { it.count }
+                    val worstPrediction = associations.minBy { it.count }
+                    val bestPrediction = associations.maxBy { it.count }
+                    s.appendLine(
+                        "Worst chance - ${worstPrediction.context.joinToString(" ") { token -> if (token is MarkerToken) "[marker ${token.type.name}]" else if (token is StickerToken) "[sticker ${token.id}]" else if (token is TextToken) token.text else "${token.id}" }} - ${
+                            String.format(
+                                "%.2f", worstPrediction.count.toDouble() / totalCount * 100
+                            )
+                        }%"
+                    )
+                    s.appendLine(
+                        "Best chance - ${bestPrediction.context.joinToString(" ") { token -> if (token is MarkerToken) "[marker ${token.type.name}]" else if (token is StickerToken) "[sticker ${token.id}]" else if (token is TextToken) token.text else "${token.id}" }} - ${
+                            String.format(
+                                "%.2f", bestPrediction.count.toDouble() / totalCount * 100
+                            )
+                        }%"
+                    )
+                }
+
+                s.appendLine()
+                s.appendLine("Total contexts: $totalPredictions")
+                val final = s.toString()
+                if (final.length > 4096) {
+                    reply(
+                        it,
+                        "Too many contexts to fit in 4096 characters. There are $totalPredictions possible contexts. Full excerpt will be sent as file as soon as possible."
+                    )
+                    try {
+                        sendDocument(
+                            it.chat,
+                            InputFile.fromInput("contexts.txt") { final.byteInputStream().asSource().buffered() })
                     } catch (e: Throwable) {
                         reply(it, "There was an error in sending the document.")
                         e.printStackTrace()

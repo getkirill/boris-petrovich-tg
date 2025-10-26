@@ -177,6 +177,27 @@ class PostgresDatabase(
                 }
             }
 
+    override fun possibleContexts(prediction: Token): Iterable<Association> = conn.query("SELECT context, count FROM association WHERE prediction = ?;", {
+        setLong(
+            1,
+            prediction.id
+        )
+    }) {
+        DbAssociation(
+            (getArray(1).array as Array<Long>).map { getToken(it)!! },
+            prediction,
+            getLong(2)
+        ) {
+            conn.execute(
+                "UPDATE association SET count = ? WHERE context = ? AND prediction = ?;"
+            ) {
+                setLong(1, it)
+                setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
+                setLong(3, prediction.id)
+            }
+        }
+    }
+
     override val associations: Iterable<Association>
         get() = conn.query(
             """

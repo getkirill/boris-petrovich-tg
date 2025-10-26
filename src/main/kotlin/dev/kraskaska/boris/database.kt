@@ -38,6 +38,8 @@ abstract class Database {
     open fun possiblePredictions(context: Iterable<Token>): Iterable<Association> =
         if (context.last() == MarkerToken.END) emptyList() else
             associations.filter { it.context.toList() == context.toList() }
+    open fun possibleContexts(prediction: Token): Iterable<Association> =
+        associations.filter { it.prediction == prediction }
 
     open fun predictToken(context: Iterable<Token>) =
         possiblePredictions(context).filter { !(context.last() == MarkerToken.START && it.prediction == MarkerToken.END) }
