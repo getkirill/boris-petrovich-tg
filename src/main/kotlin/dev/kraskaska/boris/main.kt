@@ -1,7 +1,9 @@
 package dev.kraskaska.boris
 
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
+import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.bot.getMe
+import dev.inmo.tgbotapi.extensions.api.chat.members.getChatMember
 import dev.inmo.tgbotapi.extensions.api.getUpdates
 import dev.inmo.tgbotapi.extensions.api.send.media.sendDocument
 import dev.inmo.tgbotapi.extensions.api.send.media.sendSticker
@@ -12,9 +14,14 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.buildBehaviourWithLongPolling
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
+import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.extensions.utils.*
+import dev.inmo.tgbotapi.extensions.utils.extensions.isAdministrator
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
+import dev.inmo.tgbotapi.extensions.utils.extensions.raw.message
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
+import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
+import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.requests.abstracts.InputFile
 import dev.inmo.tgbotapi.types.ReplyParameters
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
@@ -22,17 +29,40 @@ import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
 import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
+import dev.inmo.tgbotapi.utils.row
 import dev.kraskaska.boris.Database.Companion.CONTEXT_WINDOW
 import dev.kraskaska.boris.migrations.runMigrations
+import kotlinx.datetime.*
+import kotlinx.datetime.format.char
 import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlin.random.Random
+import kotlin.time.DurationUnit
+import kotlin.time.toDuration
 
+val dateTimeFormat = LocalDateTime.Format {
+    year()
+    char('-')
+    monthNumber()
+    char('-')
+    dayOfMonth()
+
+    char(' ')
+
+    hour()
+    char(':')
+    minute()
+    char(':')
+    second()
+
+    chars(" UTC")
+}
 
 @OptIn(RiskFeature::class, PreviewFeature::class)
 suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: CommonMessage<MessageContent>) {
     val config = db.getConfigForChat(message.chat.id.chatId.long)
     println("Received message! $message")
+    val isSilenced = config.silenceUntil?.let { Clock.System.now() < it } == true
     val hasStartingSlash = message.text?.trim()?.startsWith("/") == true
     val isFromBot = message.from?.botOrNull() != null
     val hasCommands =
@@ -50,7 +80,8 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val inReplyToMe = message.replyTo?.from?.id == getMe().id
     val hasMentionOfMe =
         message.content.asTextContent()?.textSources?.any { it.mentionTextSourceOrNull()?.username == getMe().username } == true
-    val shouldAcknowledge = inReplyToMe || hasMentionOfMe || inDirectMessages || hasMyGenerateCommand || passesChance
+    val shouldAcknowledge =
+        inReplyToMe || hasMentionOfMe || inDirectMessages || hasMyGenerateCommand || (passesChance && !isSilenced)
     // TODO: reintroduce message caching for training
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
@@ -130,21 +161,164 @@ suspend fun main(args: Array<String>) {
             """.trimIndent()
                 )
             }
-            onCommand("chance", false) {
-                val config = db.getConfigForChat(it.chat.id.chatId.long)
-                if (it.content.textSources.size < 2)
+            onCommand("silence", false) { message ->
+                val relatimeRegex =
+                    """^((?<days>[0-9]+(\.[0-9]+)?)\s*da?y?s?)?\s*?((?<hours>[0-9]+(\.[0-9]+)?)\s*ho?u?r?s?)?\s*?((?<minutes>[0-9]+(\.[0-9]+)?)mi?n?u?t?e?s?)?\s*?((?<seconds>[0-9]+(\.[0-9]+)?)\s*se?c?o?n?d?s?)?$""".toRegex()
+                val config = db.getConfigForChat(message.chat.id.chatId.long)
+                if (message.content.textSources.size < 2) reply(
+                    message, """
+                        ${
+                        if (config.silenceUntil?.let { Clock.System.now() < it } == true) "Silenced until ${
+                            (config.silenceUntil as Instant).toLocalDateTime(
+                                TimeZone.UTC
+                            ).format(dateTimeFormat)
+                        }" else if (config.generationChance <= 0f) "Generation chance is zero or less." else "Not silenced."
+                    }
+                    """.trimIndent(), replyMarkup = if (config.generationChance > 0) inlineKeyboard {
+                        row { dataButton("+1 hour", "silence:hour") }
+                        row { dataButton("+1 days", "silence:day") }
+                        row { dataButton("+7 days", "silence:week") }
+                        row { dataButton("Silence forever", "silence:forever") }
+                    } else null)
+                else {
+                    val relatime =
+                        relatimeRegex.find(message.content.textSources.drop(1).joinToString("") { it.asText }.trim())
+                    println(message.content.textSources.drop(1).joinToString("") { it.asText }.trim())
+                    println(relatime)
+                    val duration = ((relatime?.groups["days"]?.value?.toFloat()
+                        ?: 0f) * 24 * 60 * 60 + (relatime?.groups["hours"]?.value?.toFloat()
+                        ?: 0f) * 60 * 60 + (relatime?.groups["minutes"]?.value?.toFloat()
+                        ?: 0f) * 60 + (relatime?.groups["seconds"]?.value?.toFloat() ?: 0f)).toInt().toDuration(
+                        DurationUnit.SECONDS
+                    )
+                    println("Silencing for $duration seconds")
+                    if (config.silenceUntil == null || Clock.System.now() >= config.silenceUntil!!) {
+                        config.silenceUntil = Clock.System.now() + duration
+                    } else {
+                        config.silenceUntil = config.silenceUntil!! + duration
+                    }
                     reply(
-                        it, """
+                        message, "Silenced until ${
+                            (config.silenceUntil as Instant).toLocalDateTime(
+                                TimeZone.UTC
+                            ).format(dateTimeFormat)
+                        }"
+                    )
+                    db.saveConfig(config)
+                }
+            }
+            onCommand("unsilence") { message ->
+                if (!(message.chat.ifPublicChat {
+                        bot.getChatMember(
+                            it,
+                            message.from!!
+                        ).isAdministrator
+                    } ?: true)) {
+                    reply(message, "Cannot unsilence - not administrator.")
+                    return@onCommand
+                }
+                val config = db.getConfigForChat(message.chat.id.chatId.long)
+                config.silenceUntil = null
+                db.saveConfig(config)
+                if (config.generationChance <= 0) {
+                    reply(
+                        message,
+                        "Generation chance is zero or less. Use /chance@boris_petrovich_bot to configure it."
+                    )
+                } else {
+                    reply(message, "Unsilenced.")
+                }
+            }
+            onDataCallbackQuery("silence:hour") { dataCallbackQuery ->
+                val config = db.getConfigForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
+                if (!(dataCallbackQuery.message!!.chat.ifPublicChat {
+                        bot.getChatMember(
+                            it,
+                            dataCallbackQuery.from
+                        ).isAdministrator
+                    } ?: true)) {
+                    answerCallbackQuery(dataCallbackQuery, "Cannot silence - not administrator.", showAlert = true)
+                    return@onDataCallbackQuery
+                }
+                if (config.silenceUntil == null || Clock.System.now() >= config.silenceUntil!!) {
+                    config.silenceUntil = Clock.System.now() + 1.toDuration(DurationUnit.HOURS)
+                } else {
+                    config.silenceUntil = config.silenceUntil!! + 1.toDuration(DurationUnit.HOURS)
+                }
+                db.saveConfig(config)
+                answerCallbackQuery(dataCallbackQuery, "Silenced until ${config.silenceUntil}")
+            }
+            onDataCallbackQuery("silence:day") { dataCallbackQuery ->
+                val config = db.getConfigForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
+                if (!(dataCallbackQuery.message!!.chat.ifPublicChat {
+                        bot.getChatMember(
+                            it,
+                            dataCallbackQuery.from
+                        ).isAdministrator
+                    } ?: true)) {
+                    answerCallbackQuery(dataCallbackQuery, "Cannot silence - not administrator.", showAlert = true)
+                    return@onDataCallbackQuery
+                }
+                if (config.silenceUntil == null || Clock.System.now() >= config.silenceUntil!!) {
+                    config.silenceUntil = Clock.System.now() + 1.toDuration(DurationUnit.DAYS)
+                } else {
+                    config.silenceUntil = config.silenceUntil!! + 1.toDuration(DurationUnit.DAYS)
+                }
+                db.saveConfig(config)
+                answerCallbackQuery(dataCallbackQuery, "Silenced until ${config.silenceUntil}")
+            }
+            onDataCallbackQuery("silence:week") { dataCallbackQuery ->
+                val config = db.getConfigForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
+                if (!(dataCallbackQuery.message!!.chat.ifPublicChat {
+                        bot.getChatMember(
+                            it,
+                            dataCallbackQuery.from
+                        ).isAdministrator
+                    } ?: true)) {
+                    answerCallbackQuery(dataCallbackQuery, "Cannot silence - not administrator.", showAlert = true)
+                    return@onDataCallbackQuery
+                }
+                if (config.silenceUntil == null || Clock.System.now() >= config.silenceUntil!!) {
+                    config.silenceUntil = Clock.System.now() + 7.toDuration(DurationUnit.DAYS)
+                } else {
+                    config.silenceUntil = config.silenceUntil!! + 7.toDuration(DurationUnit.DAYS)
+                }
+                db.saveConfig(config)
+                answerCallbackQuery(dataCallbackQuery, "Silenced until ${config.silenceUntil}")
+            }
+            onDataCallbackQuery("silence:forever") { dataCallbackQuery ->
+                val config = db.getConfigForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
+                if (!(dataCallbackQuery.message!!.chat.ifPublicChat {
+                        bot.getChatMember(
+                            it,
+                            dataCallbackQuery.from
+                        ).isAdministrator
+                    } ?: true)) {
+                    answerCallbackQuery(dataCallbackQuery, "Cannot silence - not administrator.", showAlert = true)
+                    return@onDataCallbackQuery
+                }
+                config.generationChance = 0f;
+                db.saveConfig(config)
+                answerCallbackQuery(dataCallbackQuery, "Silenced forever - chance reduced to 0.")
+            }
+            onCommand("chance", false) { message ->
+                val config = db.getConfigForChat(message.chat.id.chatId.long)
+                if (message.content.textSources.size < 2) reply(
+                    message, """
                         Configured chance: random < ${config.generationChance} (${
-                            String.format(
-                                "%.2f", config.generationChance * 100
-                            )
-                        }%)
+                        String.format(
+                            "%.2f", config.generationChance * 100
+                        )
+                    }%)
                         Use /chance@boris_petrovich_bot <decimal> or /chance@boris_petrovich_bot <percentage>% or /chance@boris_petrovich_bot <decimal>/<decimal> to configure.
                     """.trimIndent()
-                    )
+                )
                 else {
-                    val arg = it.content.textSources[1].asText.trim()
+                    if (message.chat.ifPublicChat { !bot.getChatMember(it, message.from!!).isAdministrator } ?: false) {
+                        reply(message, "Not administrator.")
+                        return@onCommand
+                    }
+                    val arg = message.content.textSources[1].asText.trim()
                     print(arg)
                     if (arg.matches("""[0-9]+(\.[0-9]+)?%""".toRegex())) {
                         config.generationChance = arg.substringBeforeLast("%").toFloat() / 100
@@ -153,15 +327,17 @@ suspend fun main(args: Array<String>) {
                     } else if (arg.toFloatOrNull() != null) {
                         config.generationChance = arg.toFloat()
                     } else {
-                        reply(it, "Could not parse argument, configuration left unchanged.")
+                        reply(message, "Could not parse argument, configuration left unchanged.")
                         return@onCommand
                     }
                     db.saveConfig(config)
-                    reply(it, """Configured chance: random < ${config.generationChance} (${
-                        String.format(
-                            "%.2f", config.generationChance * 100
-                        )
-                    }%)""")
+                    reply(
+                        message, """Configured chance: random < ${config.generationChance} (${
+                            String.format(
+                                "%.2f", config.generationChance * 100
+                            )
+                        }%)"""
+                    )
                 }
             }
             onCommand("tokenize", false) {

@@ -26,6 +26,7 @@ val migrations: List<Migration> = listOf(
     ResourceFileBackedMigration("/2025_12_initial_schema.sql", 1),
     ResourceFileBackedMigration("/2025_12_add_chat_id.sql", 2),
     ResourceFileBackedMigration("/2025_12_config_chance.sql", 3),
+    ResourceFileBackedMigration("/2025_12_chat_silence.sql", 4),
 )
 
 fun runMigrations(jdbcDb: JdbcDb) {
