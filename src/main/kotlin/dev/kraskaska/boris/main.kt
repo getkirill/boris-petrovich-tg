@@ -23,6 +23,7 @@ import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.kraskaska.boris.Database.Companion.CONTEXT_WINDOW
+import dev.kraskaska.boris.migrations.runMigrations
 import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlin.random.Random
@@ -95,8 +96,12 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
 }
 
 @OptIn(PreviewFeature::class)
-suspend fun main() {
+suspend fun main(args: Array<String>) {
     PostgresDatabase().use { db ->
+        if (args.firstOrNull()?.lowercase() == "migrate") {
+            runMigrations(db.conn)
+            return@use
+        }
         val bot = telegramBot(System.getenv("TG_TOKEN"))
         // eldritch horrrors
         bot.getUpdates().lastOrNull()?.updateId?.let { bot.getUpdates(it + 1) }
@@ -106,7 +111,7 @@ suspend fun main() {
             onCommand("start") {
                 reply(
                     it,
-                    "Привет\\! Меня зовут Борис Петрович\\.\nЯ читаю сообщения и пытаюсь сгенерировать свои на основе известных\\!\n\n_Бот читает все сообщения которые он получает, а также может сохранять часть сообщений для допольнительного контекста во время обучения\\.\nНемедленно кикнете/заблокируйте бота если вы не согласны с этим\\._",
+                    "Привет\\! Меня зовут Борис Петрович\\.\nЯ читаю сообщения и пытаюсь сгенерировать свои на основе известных\\!\n\n_Бот читает все сообщения которые он получает, а также может сохранять часть сообщений для допольнительного контекста во время обучения\\. \nНемедленно кикнете/заблокируйте бота если вы не согласны с этим\\._",
                     MarkdownV2ParseMode
                 )
             }

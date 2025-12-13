@@ -34,5 +34,5 @@ class JdbcDb(url: String, user: String, password: String) : AutoCloseable {
     fun <T> querySingle(s: String, args: PreparedStatement.() -> Unit = {}, block: ResultSet.() -> T): T? =
         query(s, args) { block() }.lastOrNull()
 
-    fun isTrue(s: String, args: PreparedStatement.() -> Unit): Boolean = querySingle(s, args) { getBoolean(1) }!!
+    fun isTrue(s: String, args: PreparedStatement.() -> Unit = {}): Boolean = querySingle(s, args) { getBoolean(1) }!!
 }

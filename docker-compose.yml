@@ -10,7 +10,7 @@ services:
       POSTGRES_DB: borispetrovich
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+#      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
 
   app:
     image: borispetrovich:latest
