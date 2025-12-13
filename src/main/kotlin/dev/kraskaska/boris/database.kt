@@ -11,9 +11,9 @@ abstract class Database {
     open fun getToken(id: Long): Token? = null
     abstract fun findOrMakeTextTokenFor(segment: String): TextToken
     abstract fun findOrMakeStickerTokenFor(sticker: FileId): StickerToken
-    abstract fun findOrMakeAssociation(context: Iterable<Token>, prediction: Token): Association
+    abstract fun findOrMakeAssociation(chatId: Long, context: Iterable<Token>, prediction: Token): Association
 
-    open fun updateAssociations(tokens: Iterable<Token>) {
+    open fun updateAssociations(tokens: Iterable<Token>, chatId: Long) {
         if (tokens.toList().isEmpty()) return
         (2..(CONTEXT_WINDOW + 1)).forEach { window ->
             tokens.windowed(window).forEach { context ->
@@ -24,7 +24,7 @@ abstract class Database {
                         )
                     } with ${context[window - 1]}"
                 )
-                findOrMakeAssociation(context.subList(
+                findOrMakeAssociation(chatId, context.subList(
                     0, window - 1
                 ), context[window - 1]).count += 1
             }
@@ -33,26 +33,27 @@ abstract class Database {
     }
     protected abstract val associations: Iterable<Association>
     abstract val associationCount: Int
+    abstract fun associationCountForChat(id: Long? = null): Int
     abstract val tokenCount: Int
 
-    open fun possiblePredictions(context: Iterable<Token>): Iterable<Association> =
+    open fun possiblePredictions(chatId: Long, context: Iterable<Token>): Iterable<Association> =
         if (context.last() == MarkerToken.END) emptyList() else
             associations.filter { it.context.toList() == context.toList() }
-    open fun possibleContexts(prediction: Token): Iterable<Association> =
+    open fun possibleContexts(chatId: Long, prediction: Token): Iterable<Association> =
         associations.filter { it.prediction == prediction }
 
-    open fun predictToken(context: Iterable<Token>) =
-        possiblePredictions(context).filter { !(context.last() == MarkerToken.START && it.prediction == MarkerToken.END) }
+    open fun predictToken(chatId: Long, context: Iterable<Token>) =
+        possiblePredictions(chatId, context).filter { !(context.last() == MarkerToken.START && it.prediction == MarkerToken.END) }
             .weightedRandom()
 
-    open fun predictUntilEnd(token: Iterable<Token>): MutableList<Token> {
+    open fun predictUntilEnd(chatId: Long, token: Iterable<Token>): MutableList<Token> {
         println("Predicting tokens until end from starting context ${token.joinToString()}")
         val list = token.toMutableList()
         do {
             for (window in CONTEXT_WINDOW.coerceAtMost(list.size) downTo 1) {
-                println("Possible predictions ($window): ${possiblePredictions(list.takeLast(window)).map { "${it.prediction} (${it.count})" }}")
-                if (possiblePredictions(list.takeLast(window)).toList().isNotEmpty()) {
-                    list += predictToken(list.takeLast(window)).prediction
+                println("Possible predictions ($window): ${possiblePredictions(chatId, list.takeLast(window)).map { "${it.prediction} (${it.count})" }}")
+                if (possiblePredictions(chatId, list.takeLast(window)).toList().isNotEmpty()) {
+                    list += predictToken(chatId, list.takeLast(window)).prediction
                     break
                 }
             }
@@ -69,7 +70,7 @@ abstract class Database {
         const val CONTEXT_WINDOW = 5
     }
 }
-
+@Deprecated("Use postgres.")
 open class InMemoryDatabase : Database() {
     private val messageCache = mutableMapOf<Long, ContentMessage<MessageContent>>()
     private var nextId = 3L // 1 and 2 reserved for markers
@@ -104,17 +105,22 @@ open class InMemoryDatabase : Database() {
         }
     }
 
-    override fun findOrMakeAssociation(context: Iterable<Token>, prediction: Token): Association {
+    override fun findOrMakeAssociation(chatId: Long, context: Iterable<Token>, prediction: Token): Association {
         return (_associations.firstOrNull {
             it.context == context.toList() && it.prediction == prediction
         } ?: Association(
-            context.toList(), prediction, 0
+            chatId, context.toList(), prediction, 0
         ).apply { _associations.add(this) })
     }
 
+    @Deprecated("Don't.")
     override val associations: Iterable<Association> = _associations
+    @Deprecated("Use associationCountForChat instead")
     override val associationCount: Int
-        get() = _associations.size
+        get() = 0
+
+    override fun associationCountForChat(id: Long?) =associationCount
+
     override val tokenCount: Int
         get() = textTokenList.size + stickerTokenList.size + 2
 }

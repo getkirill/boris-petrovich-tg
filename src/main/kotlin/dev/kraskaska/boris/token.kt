@@ -39,6 +39,7 @@ class TextToken(override val id: Long, val text: String) : Token() {
         return "TextToken(id=$id, text='$text')"
     }
 }
+
 class StickerToken(override val id: Long, val sticker: FileId) : Token() {
     override fun toString(): String {
         return "StickerToken(id=$id, sticker=$sticker)"
@@ -62,10 +63,10 @@ class StickerToken(override val id: Long, val sticker: FileId) : Token() {
 //}
 
 fun MessageContent.tokenize(db: Database): Iterable<Token> {
-    if(this is TextContent) {
+    if (this is TextContent) {
         return this.text.tokenize(db)
     }
-    if(this is StickerContent) {
+    if (this is StickerContent) {
         return this.media.file_id.tokenize(db)
     }
     return emptyList()
@@ -74,24 +75,26 @@ fun MessageContent.tokenize(db: Database): Iterable<Token> {
 fun String.tokenize(db: Database): Iterable<Token> {
     return listOf(MarkerToken.START) + split(Regex(" +")).map { db.findOrMakeTextTokenFor(it) } + listOf(MarkerToken.END)
 }
+
 fun FileId.tokenize(db: Database): Iterable<Token> {
     return listOf(MarkerToken.START, db.findOrMakeStickerTokenFor(this), MarkerToken.END)
 }
 
-open class Association(val context: List<Token>, val prediction: Token, open var count: Long) {
-    override fun toString(): String {
-        return "Association(context=$context, prediction=$prediction, count=$count)"
-    }
-
+open class Association(val chatId: Long, val context: List<Token>, val prediction: Token, open var count: Long) {
     override fun equals(other: Any?): Boolean {
-        return other is Association && context == other.context && prediction == other.prediction && count == other.count
+        return other is Association && chatId == other.chatId && context == other.context && prediction == other.prediction && count == other.count
     }
 
     override fun hashCode(): Int {
-        var result = count.hashCode()
+        var result = chatId.hashCode()
+        result = 31 * result + count.hashCode()
         result = 31 * result + context.hashCode()
         result = 31 * result + prediction.hashCode()
         return result
+    }
+
+    override fun toString(): String {
+        return "Association(chatId=$chatId, context=$context, prediction=$prediction, count=$count)"
     }
 }
 

@@ -11,12 +11,13 @@ class PostgresDatabase(
     val password: String = System.getenv("POSTGRES_PASSWORD")!!
 ) : Database(), AutoCloseable {
     class DbAssociation(
+        chatId: Long,
         context: List<Token>,
         prediction: Token,
         count: Long,
         val update: DbAssociation.(Long) -> Unit
     ) :
-        Association(context, prediction, count) {
+        Association(chatId, context, prediction, count) {
         override var count: Long = count
             get() = super.count
             set(value) {
@@ -91,38 +92,43 @@ class PostgresDatabase(
                 )
             }!!
 
-    override fun findOrMakeAssociation(context: Iterable<Token>, prediction: Token): Association {
+    override fun findOrMakeAssociation(chatId: Long, context: Iterable<Token>, prediction: Token): Association {
         if (!conn.isTrue(
-                "SELECT EXISTS(SELECT 1 FROM association WHERE context = ? AND prediction = ?);"
+                "SELECT EXISTS(SELECT 1 FROM association WHERE context = ? AND prediction = ? AND chat_id = ?);"
             ) {
                 setArray(1, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                 setLong(2, prediction.id)
+                setLong(3, chatId)
             }
         ) {
             conn.execute(
-                "INSERT INTO association(context,prediction,count) VALUES (?,?,0);"
+                "INSERT INTO association(context,prediction,count,chat_id) VALUES (?,?,0,?);"
             ) {
                 setArray(1, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                 setLong(2, prediction.id)
+                setLong(3, chatId)
             }
         }
         return DbAssociation(
+            chatId,
             context.toList(),
             prediction,
             conn.querySingle(
-                "SELECT count FROM association WHERE context = ? AND prediction = ?",
+                "SELECT count FROM association WHERE context = ? AND prediction = ? AND chat_id = ?;",
                 {
                     setArray(1, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                     setLong(2, prediction.id)
+                    setLong(3, chatId)
                 }
             ) { getLong(1) }!!
         ) {
             conn.execute(
-                "UPDATE association SET count = ? WHERE context = ? AND prediction = ?;"
+                "UPDATE association SET count = ? WHERE context = ? AND prediction = ? AND chat_id = ?;"
             ) {
                 setLong(1, it)
                 setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                 setLong(3, prediction.id)
+                setLong(4, chatId)
             }
         }
     }
@@ -154,49 +160,56 @@ class PostgresDatabase(
                 }
             }
 
-    override fun possiblePredictions(context: Iterable<Token>): Iterable<Association> =
+    override fun possiblePredictions(chatId: Long, context: Iterable<Token>): Iterable<Association> =
         if (context.last() == MarkerToken.END) emptyList() else
-            conn.query("SELECT prediction, count FROM association WHERE context = ?;", {
+            conn.query("SELECT prediction, count FROM association WHERE context = ? AND chat_id = ?;", {
                 setArray(
                     1,
                     conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray())
                 )
+                setLong(2, chatId)
             }) {
                 DbAssociation(
+                    chatId,
                     context.toList(),
                     getToken(getLong(1)) ?: error("Could not find token while getting possible predictions!"),
                     getLong(2)
-                ) {
+                )  {
                     conn.execute(
-                        "UPDATE association SET count = ? WHERE context = ? AND prediction = ?;"
+                        "UPDATE association SET count = ? WHERE context = ? AND prediction = ? AND chat_id = ?;"
                     ) {
                         setLong(1, it)
                         setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
                         setLong(3, prediction.id)
+                        setLong(4, chatId)
                     }
                 }
             }
 
-    override fun possibleContexts(prediction: Token): Iterable<Association> = conn.query("SELECT context, count FROM association WHERE prediction = ?;", {
-        setLong(
-            1,
-            prediction.id
-        )
-    }) {
-        DbAssociation(
-            (getArray(1).array as Array<Long>).map { getToken(it)!! },
-            prediction,
-            getLong(2)
-        ) {
-            conn.execute(
-                "UPDATE association SET count = ? WHERE context = ? AND prediction = ?;"
-            ) {
-                setLong(1, it)
-                setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
-                setLong(3, prediction.id)
+    override fun possibleContexts(chatId: Long, prediction: Token): Iterable<Association> =
+        conn.query("SELECT context, count FROM association WHERE prediction = ? AND chat_id = ?;", {
+            setLong(
+                1,
+                prediction.id
+            )
+            setLong(2, chatId)
+        }) {
+            DbAssociation(
+                chatId,
+                (getArray(1).array as Array<Long>).map { getToken(it)!! },
+                prediction,
+                getLong(2)
+            )  {
+                conn.execute(
+                    "UPDATE association SET count = ? WHERE context = ? AND prediction = ? AND chat_id = ?;"
+                ) {
+                    setLong(1, it)
+                    setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
+                    setLong(3, prediction.id)
+                    setLong(4, chatId)
+                }
             }
         }
-    }
 
     override val associations: Iterable<Association>
         get() = conn.query(
@@ -207,6 +220,7 @@ class PostgresDatabase(
         ) {
             val associationId = getLong("id")
             DbAssociation(
+                0,
                 (getArray("context").array as Array<Long>).map { tokenId ->
                     getToken(tokenId)
                         ?: error("Token $tokenId doesn't exist but is referred in association $associationId context.")
@@ -226,6 +240,13 @@ class PostgresDatabase(
         }
     override val associationCount: Int
         get() = conn.querySingle("SELECT COUNT(*) FROM association;") { getLong(1) }!!.toInt()
+
+    override fun associationCountForChat(id: Long?): Int =
+        if (id == null) conn.querySingle("SELECT COUNT(*) FROM association WHERE chat_id IS NULL;") { getLong(1) }!!
+            .toInt() else conn.querySingle(
+            "SELECT COUNT(*) FROM association WHERE chat_id = ?;",
+            { setLong(1, id) }) { getLong(1) }!!.toInt()
+
     override val tokenCount: Int
         get() = conn.querySingle("SELECT COUNT(*) FROM token;") { getLong(1) }!!.toInt()
 

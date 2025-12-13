@@ -54,7 +54,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
         if (!hasCommands) message.content.tokenize(db) else emptyList()
-    if (!hasCommands) db.updateAssociations(tokens)
+    if (!hasCommands) db.updateAssociations( tokens, message.chat.id.chatId.long)
     if (db.associationCount <= 0) {
         reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
         return
@@ -73,7 +73,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val replyInfo = if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
         message.metaInfo
     ) else null
-    val prediction = db.predictUntilEnd(tokens + listOf(MarkerToken.START)).drop(tokens.toList().size)
+    val prediction = db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START)).drop(tokens.toList().size)
     println("Final prediction: $prediction")
     if (prediction[1] is StickerToken) sendSticker(
         message.chat, (prediction[1] as StickerToken).sticker, replyParameters = replyInfo
@@ -111,7 +111,7 @@ suspend fun main(args: Array<String>) {
             onCommand("start") {
                 reply(
                     it,
-                    "Привет\\! Меня зовут Борис Петрович\\.\nЯ читаю сообщения и пытаюсь сгенерировать свои на основе известных\\!\n\n_Бот читает все сообщения которые он получает, а также может сохранять часть сообщений для допольнительного контекста во время обучения\\. \nНемедленно кикнете/заблокируйте бота если вы не согласны с этим\\._",
+                    "Привет\\! Меня зовут Борис Петрович\\.\nЯ читаю сообщения и пытаюсь сгенерировать свои на основе известных\\!\n\n_Бот читает все сообщения которые он получает, воспроизводит их, а также может сохранять часть сообщений для допольнительного контекста во время обучения\\. \nНемедленно кикнете/заблокируйте бота если вы не согласны с этим\\._",
                     MarkdownV2ParseMode
                 )
             }
@@ -123,6 +123,8 @@ suspend fun main(args: Array<String>) {
                     it, """
                 Tokens known: ${db.tokenCount}
                 Associations known: ${db.associationCount}
+                Associations known (for chat ${it.chat.id.chatId.long}): ${db.associationCountForChat(it.chat.id.chatId.long)}
+                Dangling associations (pre-December 2025, no longer predictable): ${db.associationCountForChat(null)}
             """.trimIndent()
                 )
             }
@@ -144,11 +146,14 @@ suspend fun main(args: Array<String>) {
 //            println(it.content.textSources[0].botCommandTextSourceOrNull())
                 if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
                 val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
-                if (text.isBlank()) reply(
-                    it,
-                    "_No valid argument\\!_\nPlease provide correct argument after the slash command\\.",
-                    MarkdownV2ParseMode
-                )
+                if (text.isBlank()) {
+                    reply(
+                        it,
+                        "_No valid argument\\!_\nPlease provide correct argument after the slash command\\.",
+                        MarkdownV2ParseMode
+                    )
+                    return@onCommand
+                }
 //            println("/untokenize $text")
                 val tokens = text.split(" ").mapNotNull { it.toLongOrNull() }.mapNotNull { db.getToken(it) }
                 if (tokens[0] is StickerToken) replyWithSticker(it, (tokens[0] as StickerToken).sticker)
@@ -174,7 +179,7 @@ suspend fun main(args: Array<String>) {
                 (1..CONTEXT_WINDOW.coerceAtMost(tokens.count())).forEach { window ->
                     s.appendLine()
                     s.appendLine("Window $window:")
-                    db.possiblePredictions(tokens.takeLast(window)).let { predictions ->
+                    db.possiblePredictions(it.chat.id.chatId.long, tokens.takeLast(window)).let { predictions ->
                         totalPredictions += predictions.count()
                         predictions.forEach { prediction ->
                             s.appendLine("${prediction.prediction.id} - ${prediction.prediction}")
@@ -246,7 +251,7 @@ suspend fun main(args: Array<String>) {
                 val s = StringBuilder()
                 var totalPredictions = 0
                 s.appendLine("Possible contexts for given prediction:")
-                db.possibleContexts(prediction).let { associations ->
+                db.possibleContexts(it.chat.id.chatId.long, prediction).let { associations ->
                     totalPredictions += associations.count()
                     associations.forEach { prediction ->
                         s.appendLine(prediction.context.joinToString(" ") { token -> if (token is MarkerToken) "[marker ${token.type.name}]" else if (token is StickerToken) "[sticker ${token.id}]" else if (token is TextToken) token.text else "${token.id}" } + " (${prediction.count})")
