@@ -31,6 +31,7 @@ import kotlin.random.Random
 
 @OptIn(RiskFeature::class, PreviewFeature::class)
 suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: CommonMessage<MessageContent>) {
+    val config = db.getConfigForChat(message.chat.id.chatId.long)
     println("Received message! $message")
     val hasStartingSlash = message.text?.trim()?.startsWith("/") == true
     val isFromBot = message.from?.botOrNull() != null
@@ -45,7 +46,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         println("Refusing to process; message starts with slash, contains commands or is from bot.")
         return
     }
-    val passesChance = Random.nextInt(0, 12) < 1
+    val passesChance = Random.nextFloat() < config.generationChance
     val inReplyToMe = message.replyTo?.from?.id == getMe().id
     val hasMentionOfMe =
         message.content.asTextContent()?.textSources?.any { it.mentionTextSourceOrNull()?.username == getMe().username } == true
@@ -54,7 +55,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
         if (!hasCommands) message.content.tokenize(db) else emptyList()
-    if (!hasCommands) db.updateAssociations( tokens, message.chat.id.chatId.long)
+    if (!hasCommands) db.updateAssociations(tokens, message.chat.id.chatId.long)
     if (db.associationCount <= 0) {
         reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
         return
@@ -73,7 +74,8 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val replyInfo = if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
         message.metaInfo
     ) else null
-    val prediction = db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START)).drop(tokens.toList().size)
+    val prediction =
+        db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START)).drop(tokens.toList().size)
     println("Final prediction: $prediction")
     if (prediction[1] is StickerToken) sendSticker(
         message.chat, (prediction[1] as StickerToken).sticker, replyParameters = replyInfo
@@ -127,6 +129,40 @@ suspend fun main(args: Array<String>) {
                 Dangling associations (pre-December 2025, no longer predictable): ${db.associationCountForChat(null)}
             """.trimIndent()
                 )
+            }
+            onCommand("chance", false) {
+                val config = db.getConfigForChat(it.chat.id.chatId.long)
+                if (it.content.textSources.size < 2)
+                    reply(
+                        it, """
+                        Configured chance: random < ${config.generationChance} (${
+                            String.format(
+                                "%.2f", config.generationChance * 100
+                            )
+                        }%)
+                        Use /chance@boris_petrovich_bot <decimal> or /chance@boris_petrovich_bot <percentage>% or /chance@boris_petrovich_bot <decimal>/<decimal> to configure.
+                    """.trimIndent()
+                    )
+                else {
+                    val arg = it.content.textSources[1].asText.trim()
+                    print(arg)
+                    if (arg.matches("""[0-9]+(\.[0-9]+)?%""".toRegex())) {
+                        config.generationChance = arg.substringBeforeLast("%").toFloat() / 100
+                    } else if (arg.matches("""[0-9]+(\.[0-9]+)?/[0-9]+(\.[0-9]+)?""".toRegex())) {
+                        config.generationChance = arg.split("/").let { it[0].toFloat() / it[1].toFloat() }
+                    } else if (arg.toFloatOrNull() != null) {
+                        config.generationChance = arg.toFloat()
+                    } else {
+                        reply(it, "Could not parse argument, configuration left unchanged.")
+                        return@onCommand
+                    }
+                    db.saveConfig(config)
+                    reply(it, """Configured chance: random < ${config.generationChance} (${
+                        String.format(
+                            "%.2f", config.generationChance * 100
+                        )
+                    }%)""")
+                }
             }
             onCommand("tokenize", false) {
                 val text = it.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: it.content.textSources.drop(1)

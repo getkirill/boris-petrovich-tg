@@ -174,7 +174,7 @@ class PostgresDatabase(
                     context.toList(),
                     getToken(getLong(1)) ?: error("Could not find token while getting possible predictions!"),
                     getLong(2)
-                )  {
+                ) {
                     conn.execute(
                         "UPDATE association SET count = ? WHERE context = ? AND prediction = ? AND chat_id = ?;"
                     ) {
@@ -199,7 +199,7 @@ class PostgresDatabase(
                 (getArray(1).array as Array<Long>).map { getToken(it)!! },
                 prediction,
                 getLong(2)
-            )  {
+            ) {
                 conn.execute(
                     "UPDATE association SET count = ? WHERE context = ? AND prediction = ? AND chat_id = ?;"
                 ) {
@@ -210,6 +210,24 @@ class PostgresDatabase(
                 }
             }
         }
+
+    override fun getConfigForChat(chatId: Long): Config {
+        if (!conn.isTrue("""SELECT EXISTS(SELECT 1 FROM chat_config WHERE chat_id = ?);""") { setLong(1, chatId) }) {
+            conn.execute("""INSERT INTO chat_config(chat_id) VALUES (?);""") { setLong(1, chatId) }
+        }
+        return conn.querySingle(
+            """SELECT generate_chance FROM chat_config WHERE chat_id = ?;""",
+            { setLong(1, chatId) }) { Config(chatId, getFloat(1)) }!!
+    }
+
+    override fun saveConfig(config: Config) {
+        conn.execute("""UPDATE chat_config SET generate_chance = ? WHERE chat_id = ?;""") {
+            setFloat(
+                1,
+                config.generationChance
+            ); setLong(2, config.chatId)
+        }
+    }
 
     override val associations: Iterable<Association>
         get() = conn.query(

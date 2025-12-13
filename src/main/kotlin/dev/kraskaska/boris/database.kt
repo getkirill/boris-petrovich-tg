@@ -63,6 +63,9 @@ abstract class Database {
         return list
     }
 
+    abstract fun getConfigForChat(chatId: Long): Config
+    abstract fun saveConfig(config: Config)
+
     companion object {
         /**
          * Maximum context window. CONTEXT_WINDOW tokens predict 1 token
