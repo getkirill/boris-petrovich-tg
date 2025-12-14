@@ -161,6 +161,16 @@ suspend fun main(args: Array<String>) {
             """.trimIndent()
                 )
             }
+            onCommand("top") {
+                val leaderboard = db.leaderboard(10)
+                val thisChatLeaderboard = db.leaderboardPositionFor(it.chat.id.chatId.long)
+                reply(it, """
+                    |Top 10 of chats by biggest amount of associations:
+                    |${leaderboard.joinToString("\n") { "#${it.globalPosition} - [${if(it.chatId == 0L) "Dangling associations" else it.chatId}] - ${it.count} associations" }}
+                    |
+                    |This chat (${thisChatLeaderboard.chatId}) position in leaderboard - #${thisChatLeaderboard.globalPosition} - ${thisChatLeaderboard.count} associations
+                """.trimMargin("|"))
+            }
             onCommand("silence", false) { message ->
                 val relatimeRegex =
                     """^((?<days>[0-9]+(\.[0-9]+)?)\s*da?y?s?)?\s*?((?<hours>[0-9]+(\.[0-9]+)?)\s*ho?u?r?s?)?\s*?((?<minutes>[0-9]+(\.[0-9]+)?)mi?n?u?t?e?s?)?\s*?((?<seconds>[0-9]+(\.[0-9]+)?)\s*se?c?o?n?d?s?)?$""".toRegex()

@@ -5,8 +5,8 @@ import dev.inmo.tgbotapi.types.chat.Chat
 import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
 import dev.inmo.tgbotapi.types.message.content.MessageContent
 import kotlinx.datetime.toJavaInstant
-import java.sql.Timestamp
 import kotlinx.datetime.toKotlinInstant
+import java.sql.Timestamp
 
 class PostgresDatabase(
     val url: String = System.getenv("POSTGRES_URL")!!,
@@ -229,7 +229,7 @@ class PostgresDatabase(
                 1,
                 config.generationChance
             )
-            setTimestamp(2, config.silenceUntil?.let { Timestamp.from(it.toJavaInstant ()) })
+            setTimestamp(2, config.silenceUntil?.let { Timestamp.from(it.toJavaInstant()) })
             setLong(3, config.chatId)
         }
     }
@@ -269,6 +269,44 @@ class PostgresDatabase(
             .toInt() else conn.querySingle(
             "SELECT COUNT(*) FROM association WHERE chat_id = ?;",
             { setLong(1, id) }) { getLong(1) }!!.toInt()
+
+    override fun leaderboard(n: Int): Iterable<LeaderboardEntry> = conn.query(
+        """
+            SELECT
+                chat_id,
+                RANK() OVER (ORDER BY COUNT(*) DESC) as rank,
+                COUNT(*) AS total_rows
+            FROM
+                association
+            GROUP BY
+                chat_id
+            ORDER BY
+                rank ASC,
+                chat_id ASC
+            LIMIT 10;
+            """
+    ) { LeaderboardEntry(getLong(1), getInt(2), getInt(3)) }
+
+    override fun leaderboardPositionFor(chatId: Long): LeaderboardEntry = conn.querySingle(
+        """
+        WITH Leaderboard AS (
+            SELECT 
+                chat_id, 
+                COUNT(*) AS total_rows,
+                RANK() OVER (ORDER BY COUNT(*) DESC) as position
+            FROM 
+                association
+            GROUP BY 
+                chat_id
+        )
+        SELECT 
+            position, 
+            total_rows
+        FROM 
+            Leaderboard
+        WHERE 
+            chat_id = ?--; -- Replace with your target chatid
+    """.trimIndent(), { setLong(1, chatId) }) { LeaderboardEntry(chatId, getInt(1), getInt(2)) }!!
 
     override val tokenCount: Int
         get() = conn.querySingle("SELECT COUNT(*) FROM token;") { getLong(1) }!!.toInt()
