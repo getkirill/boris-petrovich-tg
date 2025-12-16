@@ -409,7 +409,7 @@ suspend fun main(args: Array<String>) {
                         val totalCount = predictions.sumOf { it.count }
                         val worstPrediction = predictions.minBy { it.count }
                         val bestPrediction = predictions.maxBy { it.count }
-                        val median = predictions.first {
+                        val median = predictions.firstOrNull {
                             ((worstPrediction.count + bestPrediction.count) / 2).let { median -> it.count == median || it.count - 1 == median || it.count + 1 == median }
                         }
                         s.appendLine(
@@ -426,7 +426,7 @@ suspend fun main(args: Array<String>) {
                                 )
                             }%"
                         )
-                        s.appendLine(
+                        if(median != null)s.appendLine(
                             "Median chance - ${median.prediction.id} - ${
                                 String.format(
                                     "%.2f", median.count.toDouble() / totalCount * 100
