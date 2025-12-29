@@ -117,6 +117,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val prediction =
         db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START)).drop(tokens.toList().size)
     println("Final prediction: $prediction")
+    db.cacheTokensForTraining(message.chat.id.chatId.long, prediction) // boris is now the last message
     if (prediction[1] is StickerToken) sendSticker(
         message.chat, (prediction[1] as StickerToken).sticker, replyParameters = replyInfo
     )
