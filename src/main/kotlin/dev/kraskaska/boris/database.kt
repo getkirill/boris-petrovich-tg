@@ -34,6 +34,8 @@ abstract class Database {
     protected abstract val associations: Iterable<Association>
     abstract val associationCount: Int
     abstract fun associationCountForChat(id: Long? = null): Int
+    abstract fun wipeAssociationsForChat(id: Long)
+
     data class LeaderboardEntry(val chatId: Long, val globalPosition: Int, val count: Int)
     abstract fun leaderboard(n: Int): Iterable<LeaderboardEntry>
     abstract fun leaderboardPositionFor(chatId: Long): LeaderboardEntry

@@ -1,9 +1,11 @@
 package dev.kraskaska.boris
 
+import dev.inmo.tgbotapi.bot.TelegramBot
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.bot.getMe
 import dev.inmo.tgbotapi.extensions.api.chat.members.getChatMember
+import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.getUpdates
 import dev.inmo.tgbotapi.extensions.api.send.media.sendDocument
 import dev.inmo.tgbotapi.extensions.api.send.media.sendSticker
@@ -12,6 +14,8 @@ import dev.inmo.tgbotapi.extensions.api.send.replyWithSticker
 import dev.inmo.tgbotapi.extensions.api.send.send
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.buildBehaviourWithLongPolling
+import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onChatMessageReactionUpdatedByUser
+import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onChatMessageReactionsCountUpdated
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
@@ -19,14 +23,19 @@ import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.isAdministrator
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.message
+import dev.inmo.tgbotapi.extensions.utils.extensions.raw.reply_to_message
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.requests.abstracts.InputFile
 import dev.inmo.tgbotapi.types.ReplyParameters
+import dev.inmo.tgbotapi.types.chat.PreviewChat
+import dev.inmo.tgbotapi.types.chat.User
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
+import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
 import dev.inmo.tgbotapi.types.message.content.MessageContent
+import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.inmo.tgbotapi.utils.row
@@ -151,12 +160,41 @@ suspend fun main(args: Array<String>) {
             onContentMessage {
                 handleInteraction(db, it)
             }
+            onCommand("wipe") { message ->
+                if (!(message.chat.isAdmin(bot, message.from!!))) {
+                    reply(message, "Not administrator.")
+                    return@onCommand
+                }
+                reply(
+                    message, """
+                    Are you sure you want to wipe ${db.associationCountForChat(message.chat.id.chatId.long)} associations?
+                    This action cannot be undone.
+                """.trimIndent(), replyMarkup = inlineKeyboard {
+                        row {
+                            dataButton("Wipe", "wipe")
+                        }
+                    })
+            }
+            onDataCallbackQuery("wipe") { dataCallbackQuery ->
+                if (dataCallbackQuery.message?.reply_to_message?.from != dataCallbackQuery.from) {
+                    answerCallbackQuery(
+                        dataCallbackQuery,
+                        "You are not the initiator of the /wipe command!",
+                        showAlert = true
+                    )
+                    return@onDataCallbackQuery
+                }
+                db.wipeAssociationsForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
+                send(dataCallbackQuery.message!!.chat, "Chat associations have been wiped.")
+                answerCallbackQuery(dataCallbackQuery, "Wiped associations.")
+            }
             onCommand("stats") {
                 reply(
                     it, """
                 Tokens known: ${db.tokenCount}
                 Associations known: ${db.associationCount}
-                Associations known (for chat ${it.chat.id.chatId.long}): ${db.associationCountForChat(it.chat.id.chatId.long)}
+                Associations known for chat ${it.chat.id.chatId.long}: ${db.associationCountForChat(it.chat.id.chatId.long)}
+                Associations wiped: ${db.associationCountForChat(-1)}
                 Dangling associations (pre-December 2025, no longer predictable): ${db.associationCountForChat(null)}
             """.trimIndent()
                 )
@@ -164,14 +202,20 @@ suspend fun main(args: Array<String>) {
             onCommand("top") {
                 val leaderboard = db.leaderboard(10)
                 val thisChatLeaderboard = db.leaderboardPositionFor(it.chat.id.chatId.long)
-                reply(it, """
+                reply(
+                    it, """
                     |Top 10 of chats by biggest amount of associations:
-                    |${leaderboard.joinToString("\n") { "#${it.globalPosition} - [${if(it.chatId == 0L) "Dangling associations" else it.chatId}] - ${it.count} associations" }}
+                    |${leaderboard.joinToString("\n") { "#${it.globalPosition} - [${if (it.chatId == 0L) "Dangling associations" else if (it.chatId == -1L) "Wiped associations" else it.chatId}] - ${it.count} associations" }}
                     |
-                    |This chat (${thisChatLeaderboard.chatId}) position in leaderboard - #${thisChatLeaderboard.globalPosition} - ${thisChatLeaderboard.count} associations
-                """.trimMargin("|"))
+                    |${if(thisChatLeaderboard.globalPosition != -1) "This chat (${thisChatLeaderboard.chatId}) position in leaderboard - #${thisChatLeaderboard.globalPosition} - ${thisChatLeaderboard.count} associations" else ""}
+                """.trimMargin("|")
+                )
             }
             onCommand("silence", false) { message ->
+                if (!(message.chat.isAdmin(bot, message.from!!))) {
+                    reply(message, "Not administrator.")
+                    return@onCommand
+                }
                 val relatimeRegex =
                     """^((?<days>[0-9]+(\.[0-9]+)?)\s*da?y?s?)?\s*?((?<hours>[0-9]+(\.[0-9]+)?)\s*ho?u?r?s?)?\s*?((?<minutes>[0-9]+(\.[0-9]+)?)mi?n?u?t?e?s?)?\s*?((?<seconds>[0-9]+(\.[0-9]+)?)\s*se?c?o?n?d?s?)?$""".toRegex()
                 val config = db.getConfigForChat(message.chat.id.chatId.long)
@@ -241,12 +285,7 @@ suspend fun main(args: Array<String>) {
             }
             onDataCallbackQuery("silence:hour") { dataCallbackQuery ->
                 val config = db.getConfigForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
-                if (!(dataCallbackQuery.message!!.chat.ifPublicChat {
-                        bot.getChatMember(
-                            it,
-                            dataCallbackQuery.from
-                        ).isAdministrator
-                    } ?: true)) {
+                if (!(dataCallbackQuery.message!!.chat.isAdmin(bot, dataCallbackQuery.from))) {
                     answerCallbackQuery(dataCallbackQuery, "Cannot silence - not administrator.", showAlert = true)
                     return@onDataCallbackQuery
                 }
@@ -257,15 +296,17 @@ suspend fun main(args: Array<String>) {
                 }
                 db.saveConfig(config)
                 answerCallbackQuery(dataCallbackQuery, "Silenced until ${config.silenceUntil}")
+                bot.editMessageText(
+                    dataCallbackQuery.message!! as ContentMessage<TextContent>, text = "Silenced until ${
+                        (config.silenceUntil as Instant).toLocalDateTime(
+                            TimeZone.UTC
+                        ).format(dateTimeFormat)
+                    }"
+                )
             }
             onDataCallbackQuery("silence:day") { dataCallbackQuery ->
                 val config = db.getConfigForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
-                if (!(dataCallbackQuery.message!!.chat.ifPublicChat {
-                        bot.getChatMember(
-                            it,
-                            dataCallbackQuery.from
-                        ).isAdministrator
-                    } ?: true)) {
+                if (!(dataCallbackQuery.message!!.chat.isAdmin(bot, dataCallbackQuery.from))) {
                     answerCallbackQuery(dataCallbackQuery, "Cannot silence - not administrator.", showAlert = true)
                     return@onDataCallbackQuery
                 }
@@ -276,15 +317,17 @@ suspend fun main(args: Array<String>) {
                 }
                 db.saveConfig(config)
                 answerCallbackQuery(dataCallbackQuery, "Silenced until ${config.silenceUntil}")
+                bot.editMessageText(
+                    dataCallbackQuery.message!! as ContentMessage<TextContent>, text = "Silenced until ${
+                        (config.silenceUntil as Instant).toLocalDateTime(
+                            TimeZone.UTC
+                        ).format(dateTimeFormat)
+                    }"
+                )
             }
             onDataCallbackQuery("silence:week") { dataCallbackQuery ->
                 val config = db.getConfigForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
-                if (!(dataCallbackQuery.message!!.chat.ifPublicChat {
-                        bot.getChatMember(
-                            it,
-                            dataCallbackQuery.from
-                        ).isAdministrator
-                    } ?: true)) {
+                if (!(dataCallbackQuery.message!!.chat.isAdmin(bot, dataCallbackQuery.from))) {
                     answerCallbackQuery(dataCallbackQuery, "Cannot silence - not administrator.", showAlert = true)
                     return@onDataCallbackQuery
                 }
@@ -295,21 +338,24 @@ suspend fun main(args: Array<String>) {
                 }
                 db.saveConfig(config)
                 answerCallbackQuery(dataCallbackQuery, "Silenced until ${config.silenceUntil}")
+                bot.editMessageText(
+                    dataCallbackQuery.message!! as ContentMessage<TextContent>, text = "Silenced until ${
+                        (config.silenceUntil as Instant).toLocalDateTime(
+                            TimeZone.UTC
+                        ).format(dateTimeFormat)
+                    }"
+                )
             }
             onDataCallbackQuery("silence:forever") { dataCallbackQuery ->
                 val config = db.getConfigForChat(dataCallbackQuery.message!!.chat.id.chatId.long)
-                if (!(dataCallbackQuery.message!!.chat.ifPublicChat {
-                        bot.getChatMember(
-                            it,
-                            dataCallbackQuery.from
-                        ).isAdministrator
-                    } ?: true)) {
+                if (!(dataCallbackQuery.message!!.chat.isAdmin(bot, dataCallbackQuery.from))) {
                     answerCallbackQuery(dataCallbackQuery, "Cannot silence - not administrator.", showAlert = true)
                     return@onDataCallbackQuery
                 }
                 config.generationChance = 0f;
                 db.saveConfig(config)
                 answerCallbackQuery(dataCallbackQuery, "Silenced forever - chance reduced to 0.")
+                reply(dataCallbackQuery.message!!, "Silenced forever - chance reduced to 0.")
             }
             onCommand("chance", false) { message ->
                 val config = db.getConfigForChat(message.chat.id.chatId.long)
@@ -324,7 +370,7 @@ suspend fun main(args: Array<String>) {
                     """.trimIndent()
                 )
                 else {
-                    if (message.chat.ifPublicChat { !bot.getChatMember(it, message.from!!).isAdministrator } ?: false) {
+                    if (!(message.chat.isAdmin(bot, message.from!!))) {
                         reply(message, "Not administrator.")
                         return@onCommand
                     }
@@ -404,7 +450,7 @@ suspend fun main(args: Array<String>) {
                     db.possiblePredictions(it.chat.id.chatId.long, tokens.takeLast(window)).let { predictions ->
                         totalPredictions += predictions.count()
                         predictions.forEach { prediction ->
-                            s.appendLine("${prediction.prediction.id} - ${prediction.prediction}")
+                            s.appendLine("${prediction.prediction.id} - ${if (prediction.prediction is MarkerToken) "[marker ${prediction.prediction.type.name}]" else if (prediction.prediction is StickerToken) "[sticker ${prediction.prediction.id}]" else if (prediction.prediction is TextToken) prediction.prediction.text else "${prediction.prediction.id}"}")
                         }
                         val totalCount = predictions.sumOf { it.count }
                         val worstPrediction = predictions.minBy { it.count }
@@ -426,7 +472,7 @@ suspend fun main(args: Array<String>) {
                                 )
                             }%"
                         )
-                        if(median != null)s.appendLine(
+                        if (median != null) s.appendLine(
                             "Median chance - ${median.prediction.id} - ${
                                 String.format(
                                     "%.2f", median.count.toDouble() / totalCount * 100
@@ -520,3 +566,10 @@ suspend fun main(args: Array<String>) {
         }.join()
     }
 }
+
+suspend fun PreviewChat.isAdmin(bot: TelegramBot, member: User) = this.ifPublicChat {
+    bot.getChatMember(
+        it,
+        member
+    ).isAdministrator
+} ?: true

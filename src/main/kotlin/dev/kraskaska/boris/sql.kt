@@ -270,6 +270,14 @@ class PostgresDatabase(
             "SELECT COUNT(*) FROM association WHERE chat_id = ?;",
             { setLong(1, id) }) { getLong(1) }!!.toInt()
 
+    override fun wipeAssociationsForChat(id: Long) {
+        conn.execute("""
+            UPDATE association
+            SET chat_id = -1
+            WHERE chat_id = ?;
+        """.trimIndent(), {setLong(1, id)})
+    }
+
     override fun leaderboard(n: Int): Iterable<LeaderboardEntry> = conn.query(
         """
             SELECT
@@ -306,7 +314,7 @@ class PostgresDatabase(
             Leaderboard
         WHERE 
             chat_id = ?--; -- Replace with your target chatid
-    """.trimIndent(), { setLong(1, chatId) }) { LeaderboardEntry(chatId, getInt(1), getInt(2)) }!!
+    """.trimIndent(), { setLong(1, chatId) }) { LeaderboardEntry(chatId, getInt(1), getInt(2)) } ?: Database.LeaderboardEntry(chatId, -1, 0)
 
     override val tokenCount: Int
         get() = conn.querySingle("SELECT COUNT(*) FROM token;") { getLong(1) }!!.toInt()
