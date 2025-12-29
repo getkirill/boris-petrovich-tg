@@ -1,9 +1,6 @@
 package dev.kraskaska.boris
 
 import dev.inmo.tgbotapi.requests.abstracts.FileId
-import dev.inmo.tgbotapi.types.chat.Chat
-import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
-import dev.inmo.tgbotapi.types.message.content.MessageContent
 import kotlinx.datetime.toJavaInstant
 import kotlinx.datetime.toKotlinInstant
 import java.sql.Timestamp
@@ -30,16 +27,7 @@ class PostgresDatabase(
     }
 
     val conn = JdbcDb("jdbc:$url", username, password)
-    override fun cacheMessageForTraining(
-        chat: Chat,
-        message: ContentMessage<MessageContent>?
-    ) {
-        TODO("Not yet implemented")
-    }
 
-    override fun recallMessageForTraining(chat: Chat): ContentMessage<MessageContent>? {
-        TODO("Not yet implemented")
-    }
 
     override fun findOrMakeTextTokenFor(segment: String): TextToken =
         conn.querySingle("SELECT id FROM text_token WHERE text = ?;", { setString(1, segment) }) {
@@ -134,6 +122,33 @@ class PostgresDatabase(
                 setLong(4, chatId)
             }
         }
+    }
+
+    override fun cacheTokensForTraining(
+        chatId: Long,
+        tokens: Iterable<Token>?
+    ) {
+        conn.execute(
+            """
+            INSERT INTO token_cache (chat_id, tokens) 
+            VALUES (?, ?)
+            ON CONFLICT (chat_id) 
+            DO UPDATE SET tokens = EXCLUDED.tokens;
+        """.trimIndent(),
+            {
+                setLong(1, chatId);
+                if (tokens != null) setArray(
+                    2,
+                    conn.conn.createArrayOf("BIGINT", tokens!!.map { it.id }.toList().toTypedArray())
+                ) else setNull(2, java.sql.Types.ARRAY)
+            })
+    }
+
+    override fun recallTokensForTraining(chatId: Long): Iterable<Token>? = conn.querySingle("""
+        SELECT tokens FROM token_cache WHERE chat_id = ?;
+    """.trimIndent(), {setLong(1, chatId)}) {
+        val arr = getArray(1).array as? Array<Long>? ?: return@querySingle null
+        arr.map { getToken(it)!! }
     }
 
     override fun getToken(id: Long): Token? =
@@ -271,7 +286,8 @@ class PostgresDatabase(
             { setLong(1, id) }) { getLong(1) }!!.toInt()
 
     override fun wipeAssociationsForChat(id: Long) {
-        conn.execute("""
+        conn.execute(
+            """
             BEGIN;
 
             DELETE FROM association a
@@ -286,7 +302,7 @@ class PostgresDatabase(
             WHERE chat_id = ?;
             
             COMMIT;
-        """.trimIndent(), {setLong(1, id); setLong(2, id)})
+        """.trimIndent(), { setLong(1, id); setLong(2, id) })
     }
 
     override fun leaderboard(n: Int): Iterable<LeaderboardEntry> = conn.query(
@@ -325,7 +341,8 @@ class PostgresDatabase(
             Leaderboard
         WHERE 
             chat_id = ?--; -- Replace with your target chatid
-    """.trimIndent(), { setLong(1, chatId) }) { LeaderboardEntry(chatId, getInt(1), getInt(2)) } ?: Database.LeaderboardEntry(chatId, -1, 0)
+    """.trimIndent(), { setLong(1, chatId) }) { LeaderboardEntry(chatId, getInt(1), getInt(2)) }
+        ?: Database.LeaderboardEntry(chatId, -1, 0)
 
     override val tokenCount: Int
         get() = conn.querySingle("SELECT COUNT(*) FROM token;") { getLong(1) }!!.toInt()

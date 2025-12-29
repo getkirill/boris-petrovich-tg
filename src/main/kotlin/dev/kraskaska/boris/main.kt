@@ -14,8 +14,6 @@ import dev.inmo.tgbotapi.extensions.api.send.replyWithSticker
 import dev.inmo.tgbotapi.extensions.api.send.send
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.buildBehaviourWithLongPolling
-import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onChatMessageReactionUpdatedByUser
-import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onChatMessageReactionsCountUpdated
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
@@ -94,8 +92,10 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     // TODO: reintroduce message caching for training
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
-        if (!hasCommands) message.content.tokenize(db) else emptyList()
+        if (!hasCommands) (db.recallTokensForTraining(message.chat.id.chatId.long)
+            ?: emptyList()) + message.content.tokenize(db) else emptyList()
     if (!hasCommands) db.updateAssociations(tokens, message.chat.id.chatId.long)
+    if (!hasCommands) db.cacheTokensForTraining(message.chat.id.chatId.long, message.content.tokenize(db))
     if (db.associationCountForChat(message.chat.id.chatId.long) <= 0) {
         reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
         return
@@ -149,7 +149,6 @@ suspend fun main(args: Array<String>) {
         bot.getUpdates().lastOrNull()?.updateId?.let { bot.getUpdates(it + 1) }
         bot.buildBehaviourWithLongPolling() {
             println(getMe())
-
             onCommand("start") {
                 reply(
                     it,
@@ -159,6 +158,13 @@ suspend fun main(args: Array<String>) {
             }
             onContentMessage {
                 handleInteraction(db, it)
+            }
+            onCommand("debugcached") {
+                reply(
+                    it,
+                    db.recallTokensForTraining(it.chat.id.chatId.long)
+                        ?.joinToString { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if (it is MarkerToken) "[marker ${it.type.name}]" else "" }
+                        ?: "No cached message tokens")
             }
             onCommand("wipe") { message ->
                 if (!(message.chat.isAdmin(bot, message.from!!))) {
@@ -207,7 +213,7 @@ suspend fun main(args: Array<String>) {
                     |Top 10 of chats by biggest amount of associations:
                     |${leaderboard.joinToString("\n") { "#${it.globalPosition} - [${if (it.chatId == 0L) "Dangling associations" else if (it.chatId == -1L) "Wiped associations" else it.chatId}] - ${it.count} associations" }}
                     |
-                    |${if(thisChatLeaderboard.globalPosition != -1) "This chat (${thisChatLeaderboard.chatId}) position in leaderboard - #${thisChatLeaderboard.globalPosition} - ${thisChatLeaderboard.count} associations" else ""}
+                    |${if (thisChatLeaderboard.globalPosition != -1) "This chat (${thisChatLeaderboard.chatId}) position in leaderboard - #${thisChatLeaderboard.globalPosition} - ${thisChatLeaderboard.count} associations" else ""}
                 """.trimMargin("|")
                 )
             }
@@ -453,19 +459,19 @@ suspend fun main(args: Array<String>) {
                             s.appendLine("${prediction.prediction.id} - ${if (prediction.prediction is MarkerToken) "[marker ${prediction.prediction.type.name}]" else if (prediction.prediction is StickerToken) "[sticker ${prediction.prediction.id}]" else if (prediction.prediction is TextToken) prediction.prediction.text else "${prediction.prediction.id}"}")
                         }
                         val totalCount = predictions.sumOf { it.count }
-                        val worstPrediction = predictions.minBy { it.count }
-                        val bestPrediction = predictions.maxBy { it.count }
+                        val worstPrediction = predictions.minByOrNull { it.count }
+                        val bestPrediction = predictions.maxByOrNull { it.count }
                         val median = predictions.firstOrNull {
-                            ((worstPrediction.count + bestPrediction.count) / 2).let { median -> it.count == median || it.count - 1 == median || it.count + 1 == median }
+                            (((worstPrediction?.count ?: 0)+ (bestPrediction?.count ?: 0)) / 2).let { median -> it.count == median || it.count - 1 == median || it.count + 1 == median }
                         }
-                        s.appendLine(
+                        if(worstPrediction != null)s.appendLine(
                             "Worst chance - ${worstPrediction.prediction.id} - ${
                                 String.format(
                                     "%.2f", worstPrediction.count.toDouble() / totalCount * 100
                                 )
                             }%"
                         )
-                        s.appendLine(
+                        if(bestPrediction != null)s.appendLine(
                             "Best chance - ${bestPrediction.prediction.id} - ${
                                 String.format(
                                     "%.2f", bestPrediction.count.toDouble() / totalCount * 100

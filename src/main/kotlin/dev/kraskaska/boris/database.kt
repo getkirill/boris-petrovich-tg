@@ -1,13 +1,10 @@
 package dev.kraskaska.boris
 
 import dev.inmo.tgbotapi.requests.abstracts.FileId
-import dev.inmo.tgbotapi.types.chat.Chat
-import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
-import dev.inmo.tgbotapi.types.message.content.MessageContent
 
 abstract class Database {
-    abstract fun cacheMessageForTraining(chat: Chat, message: ContentMessage<MessageContent>?)
-    abstract fun recallMessageForTraining(chat: Chat): ContentMessage<MessageContent>?
+    abstract fun cacheTokensForTraining(chatId: Long, tokens: Iterable<Token>?)
+    abstract fun recallTokensForTraining(chatId: Long): Iterable<Token>?
     open fun getToken(id: Long): Token? = null
     abstract fun findOrMakeTextTokenFor(segment: String): TextToken
     abstract fun findOrMakeStickerTokenFor(sticker: FileId): StickerToken
