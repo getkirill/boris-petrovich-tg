@@ -272,10 +272,21 @@ class PostgresDatabase(
 
     override fun wipeAssociationsForChat(id: Long) {
         conn.execute("""
+            BEGIN;
+
+            DELETE FROM association a
+            USING association b
+            WHERE a.chat_id = ?
+              AND b.chat_id = -1
+              AND a.context = b.context
+              AND a.prediction = b.prediction;
+            
             UPDATE association
             SET chat_id = -1
             WHERE chat_id = ?;
-        """.trimIndent(), {setLong(1, id)})
+            
+            COMMIT;
+        """.trimIndent(), {setLong(1, id); setLong(2, id)})
     }
 
     override fun leaderboard(n: Int): Iterable<LeaderboardEntry> = conn.query(
