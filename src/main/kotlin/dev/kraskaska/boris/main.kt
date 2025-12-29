@@ -96,7 +96,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
         if (!hasCommands) message.content.tokenize(db) else emptyList()
     if (!hasCommands) db.updateAssociations(tokens, message.chat.id.chatId.long)
-    if (db.associationCount <= 0) {
+    if (db.associationCountForChat(message.chat.id.chatId.long) <= 0) {
         reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
         return
     }
