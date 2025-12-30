@@ -5,7 +5,9 @@ import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.bot.getMe
 import dev.inmo.tgbotapi.extensions.api.chat.members.getChatMember
+import dev.inmo.tgbotapi.extensions.api.edit.edit
 import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
+import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.getUpdates
 import dev.inmo.tgbotapi.extensions.api.send.media.sendDocument
 import dev.inmo.tgbotapi.extensions.api.send.media.sendSticker
@@ -24,7 +26,9 @@ import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.message
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.reply_to_message
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
+import dev.inmo.tgbotapi.extensions.utils.types.buttons.copyTextButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
+import dev.inmo.tgbotapi.extensions.utils.types.buttons.flatInlineKeyboard
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.requests.abstracts.InputFile
 import dev.inmo.tgbotapi.types.ReplyParameters
@@ -41,10 +45,19 @@ import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.inmo.tgbotapi.utils.row
 import dev.kraskaska.boris.Database.Companion.CONTEXT_WINDOW
 import dev.kraskaska.boris.migrations.runMigrations
+import korlibs.time.seconds
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.datetime.*
+import kotlinx.datetime.Clock
 import kotlinx.datetime.format.char
 import kotlinx.io.asSource
 import kotlinx.io.buffered
+import java.io.BufferedInputStream
+import java.io.FileInputStream
+import java.nio.file.Files
 import kotlin.random.Random
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
@@ -109,12 +122,14 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val replyInfo = if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
         message.metaInfo
     ) else null
+    val predictStart = Clock.System.now()
     val prediction =
         db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START), config.contextWindow).drop(tokens.toList().size)
+    val time = Clock.System.now() - predictStart
     println("Final prediction: $prediction")
     db.cacheTokensForTraining(message.chat.id.chatId.long, prediction) // boris is now the last message
     if (prediction[1] is StickerToken) sendSticker(
-        message.chat, (prediction[1] as StickerToken).sticker, replyParameters = replyInfo
+        message.chat, (prediction[1] as StickerToken).sticker, replyParameters = replyInfo, replyMarkup = flatInlineKeyboard { copyTextButton("Generated in ${time.seconds} seconds", "${time.seconds}") }
     )
     else {
         val textualPrediction = prediction.joinToString(" ") { if (it is TextToken) it.text else "" }
@@ -128,7 +143,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
             )
 //            println(textualPrediction)
         } else send(
-            message.chat, textualPrediction, replyParameters = replyInfo
+            message.chat, textualPrediction, replyParameters = replyInfo, replyMarkup = flatInlineKeyboard { copyTextButton("Generated in ${time.seconds} seconds", "${time.seconds}") }
         )
     }
 }
@@ -136,6 +151,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
 @OptIn(PreviewFeature::class)
 suspend fun main(args: Array<String>) {
     PostgresDatabase().use { db ->
+        val activeJobs = mutableMapOf<Long, Job>()
         if (args.firstOrNull()?.lowercase() == "migrate") {
             runMigrations(db.conn)
             return@use
@@ -381,6 +397,84 @@ suspend fun main(args: Array<String>) {
                 config.contextWindow = arg.coerceIn(1, 25)
                 db.saveConfig(config)
                 reply(message, "Context window set to $arg")
+            }
+            onCommand("debugingest") { message ->
+                var config = db.getConfigForChat(message.chat.id.chatId.long)
+                if(message.reply_to_message == null) {
+                    reply(message, "Send this command as a reply to a bin file")
+                    return@onCommand
+                }
+                if(message.reply_to_message!!.document == null) {
+                    reply(message, "Reply does not contain a document")
+                    return@onCommand
+                }
+                if(message.reply_to_message!!.document!!.fileName?.endsWith(".bin") != true) {
+                    reply(message, "Not a binary")
+                    return@onCommand
+                }
+                val tempFile = Files.createTempFile("boris_ingestdata_", ".bin").toFile()
+                val mesg = reply(message, "Downloading data...", replyMarkup = inlineKeyboard {
+                    row {
+                        dataButton("Cancel ingestion", "cancelingest")
+                    }
+                })
+                bot.downloadFile(message.reply_to_message!!.document!!, tempFile)
+                bot.editMessageText(mesg, "Data downloaded. Beginning ingestion.")
+                activeJobs[message.chat.id.chatId.long] = launch(Dispatchers.IO) {
+                    println("Starting coroutine...")
+                    val start = Clock.System.now()
+                    var processed = 0
+                    var nextTarget = 5
+                    var lastStr: String? = null
+                    suspend fun ingest(str: String) {
+//                        println("Ingesting...")
+                        val tokens = (lastStr?.tokenize(db) ?: emptyList()) + str.tokenize(db)
+                        db.updateAssociations(tokens, message.chat.id.chatId.long, config.contextWindow)
+                        processed++
+                        if(processed % 100 == 0) {
+                            config = db.getConfigForChat(message.chat.id.chatId.long)
+                            bot.editMessageText(mesg, "Ingested $processed messages\nSpeed: ${
+                                processed / (Clock.System.now() - start).seconds
+                            } messsages/second")
+                        }
+                        lastStr = str
+                    }
+                    FileInputStream(tempFile).use {
+                        BufferedInputStream(it).use {
+                            println("Reading...")
+                            val buf = ByteArray(4096)
+                            var leftover = ByteArray(0)
+                            var bytesRead: Int
+                            while (it.read(buf).also { bytesRead = it } != -1) {
+                                println("Read $bytesRead")
+                                val data = leftover + buf.copyOf(bytesRead)
+                                var start = 0
+                                for (i in data.indices) {
+                                    if (data[i] == 0.toByte()) {
+                                        val str = data.copyOfRange(start, i).toString(Charsets.UTF_8)
+                                        ingest(str)
+                                        start = i + 1
+                                    }
+                                }
+                                leftover = if (start < data.size) data.copyOfRange(start, data.size) else ByteArray(0)
+                            }
+
+                            // handle any remaining bytes
+                            if (leftover.isNotEmpty()) {
+                                val str = leftover.toString(Charsets.UTF_8)
+                                ingest(str)
+                            }
+                        }
+                    }
+                    send(mesg.chat, "Ingestion finished. Total processed: $processed")
+                }
+            }
+            onDataCallbackQuery("cancelingest") { dataCallbackQuery ->
+                val chat = dataCallbackQuery.message!!.chat.id.chatId.long
+                activeJobs[chat]?.cancel()
+                editMessageText(
+                    dataCallbackQuery.message!! as ContentMessage<TextContent>, "Job cancelled.",
+                )
             }
             onCommand("chance", false) { message ->
                 val config = db.getConfigForChat(message.chat.id.chatId.long)

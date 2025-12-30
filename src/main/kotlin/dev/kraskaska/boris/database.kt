@@ -14,13 +14,13 @@ abstract class Database {
         if (tokens.toList().isEmpty()) return
         (2..(contextWindow + 1)).forEach { window ->
             tokens.windowed(window).forEach { context ->
-                println(
-                    "Associating context ${
-                        context.subList(
-                            0, window - 1
-                        )
-                    } with ${context[window - 1]}"
-                )
+//                println(
+//                    "Associating context ${
+//                        context.subList(
+//                            0, window - 1
+//                        )
+//                    } with ${context[window - 1]}"
+//                )
                 findOrMakeAssociation(chatId, context.subList(
                     0, window - 1
                 ), context[window - 1]).count += 1
