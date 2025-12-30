@@ -413,13 +413,14 @@ suspend fun main(args: Array<String>) {
                     return@onCommand
                 }
                 val tempFile = Files.createTempFile("boris_ingestdata_", ".bin").toFile()
-                val mesg = reply(message, "Downloading data...", replyMarkup = inlineKeyboard {
+                val replyMarkup = inlineKeyboard {
                     row {
                         dataButton("Cancel ingestion", "cancelingest")
                     }
-                })
+                }
+                val mesg = reply(message, "Downloading data...", replyMarkup = replyMarkup)
                 bot.downloadFile(message.reply_to_message!!.document!!, tempFile)
-                bot.editMessageText(mesg, "Data downloaded. Beginning ingestion.")
+                bot.editMessageText(mesg, "Data downloaded. Beginning ingestion.", replyMarkup = replyMarkup)
                 activeJobs[message.chat.id.chatId.long] = launch(Dispatchers.IO) {
                     println("Starting coroutine...")
                     val start = Clock.System.now()
@@ -435,7 +436,7 @@ suspend fun main(args: Array<String>) {
                             config = db.getConfigForChat(message.chat.id.chatId.long)
                             bot.editMessageText(mesg, "Ingested $processed messages\nSpeed: ${
                                 processed / (Clock.System.now() - start).seconds
-                            } messsages/second")
+                            } messsages/second", replyMarkup = replyMarkup)
                         }
                         lastStr = str
                     }
@@ -467,11 +468,13 @@ suspend fun main(args: Array<String>) {
                         }
                     }
                     send(mesg.chat, "Ingestion finished. Total processed: $processed")
+                    editMessageText(mesg, "Ingestion finished. Total processed: $processed")
                 }
             }
             onDataCallbackQuery("cancelingest") { dataCallbackQuery ->
                 val chat = dataCallbackQuery.message!!.chat.id.chatId.long
                 activeJobs[chat]?.cancel()
+                activeJobs.remove(chat)
                 editMessageText(
                     dataCallbackQuery.message!! as ContentMessage<TextContent>, "Job cancelled.",
                 )
