@@ -5,7 +5,6 @@ import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.bot.getMe
 import dev.inmo.tgbotapi.extensions.api.chat.members.getChatMember
-import dev.inmo.tgbotapi.extensions.api.edit.edit
 import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.getUpdates
@@ -21,11 +20,7 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onConten
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.isAdministrator
-import dev.inmo.tgbotapi.extensions.utils.extensions.raw.document
-import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
-import dev.inmo.tgbotapi.extensions.utils.extensions.raw.message
-import dev.inmo.tgbotapi.extensions.utils.extensions.raw.reply_to_message
-import dev.inmo.tgbotapi.extensions.utils.extensions.raw.text
+import dev.inmo.tgbotapi.extensions.utils.extensions.raw.*
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.copyTextButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.flatInlineKeyboard
@@ -37,21 +32,17 @@ import dev.inmo.tgbotapi.types.chat.User
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
 import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
-import dev.inmo.tgbotapi.types.message.abstracts.Message
 import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
 import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.inmo.tgbotapi.utils.row
-import dev.kraskaska.boris.Database.Companion.CONTEXT_WINDOW
 import dev.kraskaska.boris.migrations.runMigrations
 import korlibs.time.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.datetime.*
-import kotlinx.datetime.Clock
 import kotlinx.datetime.format.char
 import kotlinx.io.asSource
 import kotlinx.io.buffered
@@ -124,17 +115,28 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     ) else null
     val predictStart = Clock.System.now()
     val prediction =
-        db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START), config.contextWindow).drop(tokens.toList().size)
+        db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START), config.contextWindow)
+            .drop(tokens.toList().size)
     val time = Clock.System.now() - predictStart
     println("Final prediction: $prediction")
     db.cacheTokensForTraining(message.chat.id.chatId.long, prediction) // boris is now the last message
     if (prediction[1] is StickerToken) sendSticker(
-        message.chat, (prediction[1] as StickerToken).sticker, replyParameters = replyInfo, replyMarkup = flatInlineKeyboard { copyTextButton("Generated in ${time.seconds} seconds", "${time.seconds}") }
+        message.chat,
+        (prediction[1] as StickerToken).sticker,
+        replyParameters = replyInfo,
+        replyMarkup = flatInlineKeyboard { copyTextButton("Generated in ${time.seconds} seconds", "${time.seconds}") }
     )
     else {
         val textualPrediction = prediction.joinToString(" ") { if (it is TextToken) it.text else "" }
         println("Final textual prediction: $textualPrediction")
-        if (textualPrediction.length > 4096) {
+        if (textualPrediction.trim().isEmpty()) {
+            send(
+                message.chat,
+                "_Boris has attempted to send an empty message\\.\nTokens\\: ${prediction.joinToString(" ") { "${it.id}" }}",
+                MarkdownV2ParseMode,
+                replyParameters = replyInfo,
+            )
+        } else if (textualPrediction.length > 4096) {
             send(
                 message.chat,
                 "_Boris has attempted to send message longer than *4096* characters \\(*${textualPrediction.length}*\\)_",
@@ -143,7 +145,15 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
             )
 //            println(textualPrediction)
         } else send(
-            message.chat, textualPrediction, replyParameters = replyInfo, replyMarkup = flatInlineKeyboard { copyTextButton("Generated in ${time.seconds} seconds", "${time.seconds}") }
+            message.chat,
+            textualPrediction,
+            replyParameters = replyInfo,
+            replyMarkup = flatInlineKeyboard {
+                copyTextButton(
+                    "Generated in ${time.seconds} seconds",
+                    "${time.seconds}"
+                )
+            }
         )
     }
 }
@@ -376,7 +386,7 @@ suspend fun main(args: Array<String>) {
                 reply(dataCallbackQuery.message!!, "Silenced forever - chance reduced to 0.")
             }
             onCommand("contextwindow", false) { message ->
-                if(!(message.chat.isAdmin(bot, message.from!!))) {
+                if (!(message.chat.isAdmin(bot, message.from!!))) {
                     reply(message, "Not administrator.")
                     return@onCommand
                 }
@@ -390,7 +400,7 @@ suspend fun main(args: Array<String>) {
                     return@onCommand
                 }
                 val arg = message.content.textSources[1].asText.trim().toIntOrNull()
-                if(arg == null) {
+                if (arg == null) {
                     reply(message, "Failed to interpret argument as 32 bit integer.")
                     return@onCommand
                 }
@@ -400,15 +410,15 @@ suspend fun main(args: Array<String>) {
             }
             onCommand("debugingest") { message ->
                 var config = db.getConfigForChat(message.chat.id.chatId.long)
-                if(message.reply_to_message == null) {
+                if (message.reply_to_message == null) {
                     reply(message, "Send this command as a reply to a bin file")
                     return@onCommand
                 }
-                if(message.reply_to_message!!.document == null) {
+                if (message.reply_to_message!!.document == null) {
                     reply(message, "Reply does not contain a document")
                     return@onCommand
                 }
-                if(message.reply_to_message!!.document!!.fileName?.endsWith(".bin") != true) {
+                if (message.reply_to_message!!.document!!.fileName?.endsWith(".bin") != true) {
                     reply(message, "Not a binary")
                     return@onCommand
                 }
@@ -432,11 +442,13 @@ suspend fun main(args: Array<String>) {
                         val tokens = (lastStr?.tokenize(db) ?: emptyList()) + str.tokenize(db)
                         db.updateAssociations(tokens, message.chat.id.chatId.long, config.contextWindow)
                         processed++
-                        if(processed % 100 == 0) {
+                        if (processed % 100 == 0) {
                             config = db.getConfigForChat(message.chat.id.chatId.long)
-                            bot.editMessageText(mesg, "Ingested $processed messages\nSpeed: ${
-                                processed / (Clock.System.now() - start).seconds
-                            } messsages/second", replyMarkup = replyMarkup)
+                            bot.editMessageText(
+                                mesg, "Ingested $processed messages\nSpeed: ${
+                                    processed / (Clock.System.now() - start).seconds
+                                } messsages/second", replyMarkup = replyMarkup
+                            )
                         }
                         lastStr = str
                     }
@@ -580,16 +592,17 @@ suspend fun main(args: Array<String>) {
                         val worstPrediction = predictions.minByOrNull { it.count }
                         val bestPrediction = predictions.maxByOrNull { it.count }
                         val median = predictions.firstOrNull {
-                            (((worstPrediction?.count ?: 0)+ (bestPrediction?.count ?: 0)) / 2).let { median -> it.count == median || it.count - 1 == median || it.count + 1 == median }
+                            (((worstPrediction?.count ?: 0) + (bestPrediction?.count
+                                ?: 0)) / 2).let { median -> it.count == median || it.count - 1 == median || it.count + 1 == median }
                         }
-                        if(worstPrediction != null)s.appendLine(
+                        if (worstPrediction != null) s.appendLine(
                             "Worst chance - ${worstPrediction.prediction.id} - ${
                                 String.format(
                                     "%.2f", worstPrediction.count.toDouble() / totalCount * 100
                                 )
                             }%"
                         )
-                        if(bestPrediction != null)s.appendLine(
+                        if (bestPrediction != null) s.appendLine(
                             "Best chance - ${bestPrediction.prediction.id} - ${
                                 String.format(
                                     "%.2f", bestPrediction.count.toDouble() / totalCount * 100

@@ -46,16 +46,17 @@ abstract class Database {
 
     open fun predictToken(chatId: Long, context: Iterable<Token>) =
         possiblePredictions(chatId, context).filter { !(context.last() == MarkerToken.START && it.prediction == MarkerToken.END) }
-            .weightedRandom()
+            .weightedRandomOrNull()
 
     open fun predictUntilEnd(chatId: Long, token: Iterable<Token>, contextWindow: Int): MutableList<Token> {
         println("Predicting tokens until end from starting context ${token.joinToString()}")
         val list = token.toMutableList()
         do {
             for (window in contextWindow.coerceAtMost(list.size) downTo 1) {
-                println("Possible predictions ($window): ${possiblePredictions(chatId, list.takeLast(window)).map { "${it.prediction} (${it.count})" }}")
-                if (possiblePredictions(chatId, list.takeLast(window)).toList().isNotEmpty()) {
-                    list += predictToken(chatId, list.takeLast(window)).prediction
+//                println("Possible predictions ($window): ${possiblePredictions(chatId, list.takeLast(window)).map { "${it.prediction} (${it.count})" }}")
+                val predict = predictToken(chatId, list.takeLast(window))
+                if (predict != null) {
+                    list += predict.prediction
                     break
                 }
             }

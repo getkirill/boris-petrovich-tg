@@ -98,7 +98,8 @@ open class Association(val chatId: Long, val context: List<Token>, val predictio
     }
 }
 
-fun Iterable<Association>.weightedRandom(): Association {
+fun Iterable<Association>.weightedRandomOrNull(): Association? {
+    if(count() < 1) return null
     val total = sumOf { it.count }
     var currentWeightSum = 0L
     val random = Random.nextLong(total)
