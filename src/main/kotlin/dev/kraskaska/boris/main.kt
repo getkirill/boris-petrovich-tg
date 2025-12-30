@@ -79,8 +79,8 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         textSource.botCommandTextSourceOrNull()
             ?.let { botCommandTextSource -> botCommandTextSource.command == "generate" && (botCommandTextSource.username == getMe().username || inDirectMessages) } == true
     } == true
-    if (isFromBot || ((hasCommands || hasStartingSlash) && !hasMyGenerateCommand)) {
-        println("Refusing to process; message starts with slash, contains commands or is from bot.")
+    if (((hasCommands || hasStartingSlash) && !hasMyGenerateCommand)) {
+        println("Refusing to process; message starts with slash or contains commands.")
         return
     }
     val passesChance = Random.nextFloat() < config.generationChance
@@ -88,7 +88,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val hasMentionOfMe =
         message.content.asTextContent()?.textSources?.any { it.mentionTextSourceOrNull()?.username == getMe().username } == true
     val shouldAcknowledge =
-        inReplyToMe || hasMentionOfMe || inDirectMessages || hasMyGenerateCommand || (passesChance && !isSilenced)
+        (inReplyToMe || hasMentionOfMe || inDirectMessages || hasMyGenerateCommand || (passesChance && !isSilenced)) && !isFromBot
     // TODO: reintroduce message caching for training
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
@@ -96,19 +96,12 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
             ?: emptyList()) + message.content.tokenize(db) else emptyList()
     if (!hasCommands) db.updateAssociations(tokens, message.chat.id.chatId.long)
     if (!hasCommands) db.cacheTokensForTraining(message.chat.id.chatId.long, message.content.tokenize(db))
-    if (db.associationCountForChat(message.chat.id.chatId.long) <= 0) {
-        reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
-        return
-    }
     if (!shouldAcknowledge) {
         println("Refusing to acknowledge; none of the conditions for responding are true")
-//        println("passesChance: $passesChance")
-//        println("isFromBot: $isFromBot")
-//        println("inDirectMessages: $inDirectMessages")
-//        println("inReplyToMe: $inReplyToMe")
-//        println("hasCommands: $hasCommands")
-//        println("hasMentionOfMe: $hasMentionOfMe")
-//        println("hasMyGenerateCommand: $hasMyGenerateCommand")
+        return
+    }
+    if (db.associationCountForChat(message.chat.id.chatId.long) <= 0) {
+        reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
         return
     }
     val replyInfo = if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
