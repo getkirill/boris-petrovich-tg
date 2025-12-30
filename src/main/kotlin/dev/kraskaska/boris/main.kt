@@ -98,7 +98,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     // TODO: reintroduce message caching for training
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
-        if (!hasCommands) (db.recallTokensForTraining(message.chat.id.chatId.long)
+        if (!hasCommands) (message.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: db.recallTokensForTraining(message.chat.id.chatId.long)
             ?: emptyList()) + message.content.tokenize(db) else emptyList()
     if (!hasCommands) db.updateAssociations(tokens, message.chat.id.chatId.long, config.contextWindow)
     if (!hasCommands) db.cacheTokensForTraining(message.chat.id.chatId.long, message.content.tokenize(db))
