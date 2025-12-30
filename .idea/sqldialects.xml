@@ -4,6 +4,7 @@
     <file url="file://$PROJECT_DIR$/src/main/resources/2025_12_add_chat_id.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/src/main/resources/2025_12_chat_silence.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/src/main/resources/2025_12_config_chance.sql" dialect="PostgreSQL" />
+    <file url="file://$PROJECT_DIR$/src/main/resources/2025_12_config_context_window.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/src/main/resources/2025_12_initial_schema.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/src/main/resources/2025_12_migrations.sql" dialect="PostgreSQL" />
   </component>

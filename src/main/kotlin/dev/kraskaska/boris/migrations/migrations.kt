@@ -28,6 +28,7 @@ val migrations: List<Migration> = listOf(
     ResourceFileBackedMigration("/2025_12_config_chance.sql", 3),
     ResourceFileBackedMigration("/2025_12_chat_silence.sql", 4),
     ResourceFileBackedMigration("/2025_12_add_token_caching_for_training.sql", 5),
+    ResourceFileBackedMigration("/2025_12_config_context_window.sql", 6),
 )
 
 fun runMigrations(jdbcDb: JdbcDb) {

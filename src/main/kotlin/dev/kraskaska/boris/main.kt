@@ -19,6 +19,7 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onConten
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.extensions.utils.*
 import dev.inmo.tgbotapi.extensions.utils.extensions.isAdministrator
+import dev.inmo.tgbotapi.extensions.utils.extensions.raw.document
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.from
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.message
 import dev.inmo.tgbotapi.extensions.utils.extensions.raw.reply_to_message
@@ -32,6 +33,7 @@ import dev.inmo.tgbotapi.types.chat.User
 import dev.inmo.tgbotapi.types.message.MarkdownV2ParseMode
 import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
 import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
+import dev.inmo.tgbotapi.types.message.abstracts.Message
 import dev.inmo.tgbotapi.types.message.content.MessageContent
 import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.utils.PreviewFeature
@@ -94,7 +96,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
         if (!hasCommands) (db.recallTokensForTraining(message.chat.id.chatId.long)
             ?: emptyList()) + message.content.tokenize(db) else emptyList()
-    if (!hasCommands) db.updateAssociations(tokens, message.chat.id.chatId.long)
+    if (!hasCommands) db.updateAssociations(tokens, message.chat.id.chatId.long, config.contextWindow)
     if (!hasCommands) db.cacheTokensForTraining(message.chat.id.chatId.long, message.content.tokenize(db))
     if (!shouldAcknowledge) {
         println("Refusing to acknowledge; none of the conditions for responding are true")
@@ -108,7 +110,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         message.metaInfo
     ) else null
     val prediction =
-        db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START)).drop(tokens.toList().size)
+        db.predictUntilEnd(message.chat.id.chatId.long, tokens + listOf(MarkerToken.START), config.contextWindow).drop(tokens.toList().size)
     println("Final prediction: $prediction")
     db.cacheTokensForTraining(message.chat.id.chatId.long, prediction) // boris is now the last message
     if (prediction[1] is StickerToken) sendSticker(
@@ -357,6 +359,29 @@ suspend fun main(args: Array<String>) {
                 answerCallbackQuery(dataCallbackQuery, "Silenced forever - chance reduced to 0.")
                 reply(dataCallbackQuery.message!!, "Silenced forever - chance reduced to 0.")
             }
+            onCommand("contextwindow", false) { message ->
+                if(!(message.chat.isAdmin(bot, message.from!!))) {
+                    reply(message, "Not administrator.")
+                    return@onCommand
+                }
+                val config = db.getConfigForChat(message.chat.id.chatId.long)
+                if (message.content.textSources.size < 2) {
+                    reply(
+                        message, """
+                        Context window: ${config.contextWindow}
+                    """.trimIndent()
+                    )
+                    return@onCommand
+                }
+                val arg = message.content.textSources[1].asText.trim().toIntOrNull()
+                if(arg == null) {
+                    reply(message, "Failed to interpret argument as 32 bit integer.")
+                    return@onCommand
+                }
+                config.contextWindow = arg.coerceIn(1, 25)
+                db.saveConfig(config)
+                reply(message, "Context window set to $arg")
+            }
             onCommand("chance", false) { message ->
                 val config = db.getConfigForChat(message.chat.id.chatId.long)
                 if (message.content.textSources.size < 2) reply(
@@ -431,7 +456,9 @@ suspend fun main(args: Array<String>) {
                     tokens.joinToString(" ") { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if (it is MarkerToken) "[marker ${it.type.name}]" else "" })
             }
             onCommand("predict", false) {
+                val config = db.getConfigForChat(it.chat.id.chatId.long)
 //            println(it.content.textSources[0].botCommandTextSourceOrNull())
+                val contextWindow = config.contextWindow
                 if (it.content.textSources[0].botCommandTextSourceOrThrow().username != getMe().username && it.chat.privateChatOrNull() == null) return@onCommand
                 val text = it.content.textSources.drop(1).joinToString(" ") { source -> source.asText }.trim()
                 if (text.isBlank()) reply(
@@ -444,7 +471,7 @@ suspend fun main(args: Array<String>) {
                 val s = StringBuilder()
                 var totalPredictions = 0
                 s.appendLine("Possible predictions for given context:")
-                (1..CONTEXT_WINDOW.coerceAtMost(tokens.count())).forEach { window ->
+                (1..contextWindow.coerceAtMost(tokens.count())).forEach { window ->
                     s.appendLine()
                     s.appendLine("Window $window:")
                     db.possiblePredictions(it.chat.id.chatId.long, tokens.takeLast(window)).let { predictions ->
@@ -488,7 +515,7 @@ suspend fun main(args: Array<String>) {
                     reply(
                         it,
                         "Too many predictions to fit in 4096 characters. There are $totalPredictions possible predictions (context windows 1-${
-                            CONTEXT_WINDOW.coerceAtMost(
+                            contextWindow.coerceAtMost(
                                 tokens.count()
                             )
                         }). Full excerpt will be sent as file as soon as possible."

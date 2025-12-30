@@ -10,9 +10,9 @@ abstract class Database {
     abstract fun findOrMakeStickerTokenFor(sticker: FileId): StickerToken
     abstract fun findOrMakeAssociation(chatId: Long, context: Iterable<Token>, prediction: Token): Association
 
-    open fun updateAssociations(tokens: Iterable<Token>, chatId: Long) {
+    open fun updateAssociations(tokens: Iterable<Token>, chatId: Long, contextWindow: Int) {
         if (tokens.toList().isEmpty()) return
-        (2..(CONTEXT_WINDOW + 1)).forEach { window ->
+        (2..(contextWindow + 1)).forEach { window ->
             tokens.windowed(window).forEach { context ->
                 println(
                     "Associating context ${
@@ -48,11 +48,11 @@ abstract class Database {
         possiblePredictions(chatId, context).filter { !(context.last() == MarkerToken.START && it.prediction == MarkerToken.END) }
             .weightedRandom()
 
-    open fun predictUntilEnd(chatId: Long, token: Iterable<Token>): MutableList<Token> {
+    open fun predictUntilEnd(chatId: Long, token: Iterable<Token>, contextWindow: Int): MutableList<Token> {
         println("Predicting tokens until end from starting context ${token.joinToString()}")
         val list = token.toMutableList()
         do {
-            for (window in CONTEXT_WINDOW.coerceAtMost(list.size) downTo 1) {
+            for (window in contextWindow.coerceAtMost(list.size) downTo 1) {
                 println("Possible predictions ($window): ${possiblePredictions(chatId, list.takeLast(window)).map { "${it.prediction} (${it.count})" }}")
                 if (possiblePredictions(chatId, list.takeLast(window)).toList().isNotEmpty()) {
                     list += predictToken(chatId, list.takeLast(window)).prediction

@@ -234,18 +234,19 @@ class PostgresDatabase(
             conn.execute("""INSERT INTO chat_config(chat_id) VALUES (?);""") { setLong(1, chatId) }
         }
         return conn.querySingle(
-            """SELECT generate_chance, silence_until FROM chat_config WHERE chat_id = ?;""",
-            { setLong(1, chatId) }) { Config(chatId, getFloat(1), getTimestamp(2)?.toInstant()?.toKotlinInstant()) }!!
+            """SELECT generate_chance, silence_until, context_window FROM chat_config WHERE chat_id = ?;""",
+            { setLong(1, chatId) }) { Config(chatId, getFloat(1), getTimestamp(2)?.toInstant()?.toKotlinInstant(), getInt(3)) }!!
     }
 
     override fun saveConfig(config: Config) {
-        conn.execute("""UPDATE chat_config SET generate_chance = ?, silence_until = ? WHERE chat_id = ?;""") {
+        conn.execute("""UPDATE chat_config SET generate_chance = ?, silence_until = ?, context_window = ? WHERE chat_id = ?;""") {
             setFloat(
                 1,
                 config.generationChance
             )
             setTimestamp(2, config.silenceUntil?.let { Timestamp.from(it.toJavaInstant()) })
-            setLong(3, config.chatId)
+            setInt(3, config.contextWindow)
+            setLong(4, config.chatId)
         }
     }
 
