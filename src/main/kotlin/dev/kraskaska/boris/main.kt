@@ -11,6 +11,7 @@ import dev.inmo.tgbotapi.extensions.api.getUpdates
 import dev.inmo.tgbotapi.extensions.api.send.media.sendDocument
 import dev.inmo.tgbotapi.extensions.api.send.media.sendSticker
 import dev.inmo.tgbotapi.extensions.api.send.reply
+import dev.inmo.tgbotapi.extensions.api.send.replyWithDocument
 import dev.inmo.tgbotapi.extensions.api.send.replyWithSticker
 import dev.inmo.tgbotapi.extensions.api.send.send
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
@@ -184,6 +185,10 @@ suspend fun main(args: Array<String>) {
                 handleInteraction(db, it)
             }
             onCommand("debugcached") {
+                if (!checkIfDeveloper(it)) {
+                    reply(it, "Refusing to process: ${it.from!!.id.chatId.long} is not bot developer")
+                    return@onCommand
+                }
                 reply(
                     it,
                     db.recallTokensForTraining(it.chat.id.chatId.long)
@@ -411,6 +416,10 @@ suspend fun main(args: Array<String>) {
                 reply(message, "Context window set to $arg")
             }
             onCommand("debugingest") { message ->
+                if (!checkIfDeveloper(message)) {
+                    reply(message, "Refusing to process: ${message.from!!.id.chatId.long} is not bot developer")
+                    return@onCommand
+                }
                 var config = db.getConfigForChat(message.chat.id.chatId.long)
                 if (message.reply_to_message == null) {
                     reply(message, "Send this command as a reply to a bin file")
@@ -484,6 +493,54 @@ suspend fun main(args: Array<String>) {
                     send(mesg.chat, "Ingestion finished. Total processed: $processed")
                     editMessageText(mesg, "Ingestion finished. Total processed: $processed")
                 }
+            }
+            onCommand("debuggenerate") { message ->
+                if (!checkIfDeveloper(message)) {
+                    reply(message, "Refusing to process: ${message.from!!.id.chatId.long} is not bot developer")
+                    return@onCommand
+                }
+                reply(message, "Starting diagnostic...")
+                val chatId = message.chat.id.chatId.long
+                val config = db.getConfigForChat(chatId)
+                val contextWindow = config.contextWindow
+                val list = mutableListOf<Token>(MarkerToken.START)
+                val sb = StringBuilder()
+                var uniqueness = 1.0
+                sb.appendLine("Generation debug")
+                sb.appendLine()
+                val generationStart = Clock.System.now()
+                do {
+                    val tokenStart = Clock.System.now()
+                    sb.appendLine("State: [${list.joinToString { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if (it is MarkerToken) "[marker ${it.type.name}]" else "" }}]")
+                    for (window in contextWindow.coerceAtMost(list.size) downTo 1) {
+                        val predictions = db.possiblePredictions(chatId, list.takeLast(window))
+                        val totalPredictions = predictions.count()
+                        val totalCount = predictions.sumOf { it.count }
+                        sb.appendLine("Possible predictions at window $window: $totalPredictions")
+//                println("Possible predictions ($window): ${possiblePredictions(chatId, list.takeLast(window)).map { "${it.prediction} (${it.count})" }}")
+                        val predict = db.predictToken(chatId, list.takeLast(window))
+                        if (predict != null) {
+                            list += predict.prediction
+                            uniqueness *= predict.count / totalCount
+                            sb.appendLine(
+                                "Predicted: ${
+                                    list.last()
+                                        .let { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if (it is MarkerToken) "[marker ${it.type.name}]" else "" }
+                                } (${predict.count / totalCount} uniqueness, $uniqueness total chain)"
+                            )
+                            break
+                        }
+                    }
+                    val tokenTime = Clock.System.now() - tokenStart
+                    sb.appendLine("Time for token: ${tokenTime.seconds}s")
+                    sb.appendLine()
+                } while (list.last() != MarkerToken.END)
+                val generationTimeTotal = Clock.System.now() - generationStart
+                sb.appendLine("Total time spent on generation: ${generationTimeTotal.seconds}s")
+                sb.appendLine("Message uniqueness: ${uniqueness}")
+                replyWithDocument(
+                    message,
+                    InputFile.fromInput("diagnostics.txt") { sb.toString().byteInputStream().asSource().buffered() })
             }
             onDataCallbackQuery("cancelingest") { dataCallbackQuery ->
                 val chat = dataCallbackQuery.message!!.chat.id.chatId.long
@@ -712,3 +769,6 @@ suspend fun PreviewChat.isAdmin(bot: TelegramBot, member: User) = this.ifPublicC
         member
     ).isAdministrator
 } ?: true
+
+fun checkIfDeveloper(message: CommonMessage<MessageContent>) =
+    message.from?.id?.chatId?.long == System.getenv("TG_DEVELOPER")?.toLongOrNull()
