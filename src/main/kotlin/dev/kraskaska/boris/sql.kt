@@ -144,9 +144,10 @@ class PostgresDatabase(
             })
     }
 
-    override fun recallTokensForTraining(chatId: Long): Iterable<Token>? = conn.querySingle("""
+    override fun recallTokensForTraining(chatId: Long): Iterable<Token>? = conn.querySingle(
+        """
         SELECT tokens FROM token_cache WHERE chat_id = ?;
-    """.trimIndent(), {setLong(1, chatId)}) {
+    """.trimIndent(), { setLong(1, chatId) }) {
         val arr = getArray(1).array as? Array<Long>? ?: return@querySingle null
         arr.map { getToken(it)!! }
     }
@@ -204,6 +205,33 @@ class PostgresDatabase(
                 }
             }
 
+    override fun predictToken(chatId: Long, context: Iterable<Token>): Association? = conn.querySingle(
+        """
+        SELECT prediction, count FROM association WHERE context = ? AND chat_id = ? ORDER BY -ln(random()) / count ASC LIMIT 1;
+    """.trimIndent(), {
+            setArray(
+                1,
+                conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray())
+            )
+            setLong(2, chatId)
+        }) {
+        DbAssociation(
+            chatId,
+            context.toList(),
+            getToken(getLong(1)) ?: error("Could not find token while predicting!"),
+            getLong(2)
+        ) {
+            conn.execute(
+                "UPDATE association SET count = ? WHERE context = ? AND prediction = ? AND chat_id = ?;"
+            ) {
+                setLong(1, it)
+                setArray(2, conn.conn.createArrayOf("BIGINT", context.map { it.id }.toList().toTypedArray()))
+                setLong(3, prediction.id)
+                setLong(4, chatId)
+            }
+        }
+    }
+
     override fun possibleContexts(chatId: Long, prediction: Token): Iterable<Association> =
         conn.query("SELECT context, count FROM association WHERE prediction = ? AND chat_id = ?;", {
             setLong(
@@ -235,7 +263,14 @@ class PostgresDatabase(
         }
         return conn.querySingle(
             """SELECT generate_chance, silence_until, context_window FROM chat_config WHERE chat_id = ?;""",
-            { setLong(1, chatId) }) { Config(chatId, getFloat(1), getTimestamp(2)?.toInstant()?.toKotlinInstant(), getInt(3)) }!!
+            { setLong(1, chatId) }) {
+            Config(
+                chatId,
+                getFloat(1),
+                getTimestamp(2)?.toInstant()?.toKotlinInstant(),
+                getInt(3)
+            )
+        }!!
     }
 
     override fun saveConfig(config: Config) {

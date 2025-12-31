@@ -509,11 +509,14 @@ suspend fun main(args: Array<String>) {
                 sb.appendLine("Generation debug")
                 sb.appendLine()
                 val generationStart = Clock.System.now()
+                var timeSpentOnPredictions = .0
                 do {
-                    val tokenStart = Clock.System.now()
                     sb.appendLine("State: [${list.joinToString { if (it is TextToken) it.text else if (it is StickerToken) "[sticker]" else if (it is MarkerToken) "[marker ${it.type.name}]" else "" }}]")
+                    val tokenStart = Clock.System.now()
                     for (window in contextWindow.coerceAtMost(list.size) downTo 1) {
+                        val predictionQueryStart = Clock.System.now()
                         val predictions = db.possiblePredictions(chatId, list.takeLast(window))
+                        timeSpentOnPredictions += (Clock.System.now() - predictionQueryStart).seconds
                         val totalPredictions = predictions.count()
                         val totalCount = predictions.sumOf { it.count }
                         sb.appendLine("Possible predictions at window $window: $totalPredictions")
@@ -532,11 +535,11 @@ suspend fun main(args: Array<String>) {
                         }
                     }
                     val tokenTime = Clock.System.now() - tokenStart
-                    sb.appendLine("Time for token: ${tokenTime.seconds}s")
+                    sb.appendLine("Time for token: ${tokenTime.seconds}s ")
                     sb.appendLine()
                 } while (list.last() != MarkerToken.END)
                 val generationTimeTotal = Clock.System.now() - generationStart
-                sb.appendLine("Total time spent on generation: ${generationTimeTotal.seconds}s")
+                sb.appendLine("Total time spent on generation: ${generationTimeTotal.seconds}s, without prediction stuff: ${generationTimeTotal.seconds - timeSpentOnPredictions}")
                 sb.appendLine("Message uniqueness: ${uniqueness}")
                 replyWithDocument(
                     message,
