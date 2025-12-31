@@ -15,6 +15,7 @@ dependencies {
     testImplementation(kotlin("test"))
     implementation("dev.inmo:tgbotapi:29.0.0")
     implementation("org.postgresql:postgresql:42.7.8")
+    implementation("org.slf4j:slf4j-jdk14:2.0.17")
 }
 
 tasks.test {
