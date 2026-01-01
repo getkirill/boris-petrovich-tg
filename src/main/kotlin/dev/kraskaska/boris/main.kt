@@ -123,11 +123,21 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val time = Clock.System.now() - predictStart
     println("Final prediction: $prediction")
     db.cacheTokensForTraining(message.chat.id.chatId.long, prediction) // boris is now the last message
+    val replyMarkup = if (time.seconds >= 1) flatInlineKeyboard {
+        copyTextButton(
+            "Generated in ${
+                String.format(
+                    "%.2f",
+                    time.seconds
+                )
+            } seconds", "${time.seconds}"
+        )
+    } else null
     if (prediction[1] is StickerToken) sendSticker(
         message.chat,
         (prediction[1] as StickerToken).sticker,
         replyParameters = replyInfo,
-        replyMarkup = flatInlineKeyboard { copyTextButton("Generated in ${time.seconds} seconds", "${time.seconds}") }
+        replyMarkup = replyMarkup
     )
     else {
         val textualPrediction = prediction.joinToString(" ") { if (it is TextToken) it.text else "" }
@@ -151,12 +161,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
             message.chat,
             textualPrediction,
             replyParameters = replyInfo,
-            replyMarkup = flatInlineKeyboard {
-                copyTextButton(
-                    "Generated in ${time.seconds} seconds",
-                    "${time.seconds}"
-                )
-            }
+            replyMarkup = replyMarkup
         )
     }
 }
