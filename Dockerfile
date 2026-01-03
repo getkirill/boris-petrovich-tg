@@ -3,11 +3,10 @@ FROM gradle:8.14-jdk21 AS builder
 WORKDIR /app
 
 # don't redownload dependencies each time
-COPY gradlew .
+COPY build.gradle.kts settings.gradle.kts gradlew ./
 COPY gradle gradle
-COPY build.gradle.kts settings.gradle.kts ./
 
-RUN ./gradlew dependencies --no-daemon
+RUN ./gradlew build || return 0
 
 COPY src src
 
