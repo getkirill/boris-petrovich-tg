@@ -6,7 +6,7 @@ WORKDIR /app
 COPY build.gradle.kts settings.gradle.kts gradlew ./
 COPY gradle gradle
 
-RUN ./gradlew build || return 0
+RUN ./gradlew build --no-daemon --info || return 0
 
 COPY src src
 
