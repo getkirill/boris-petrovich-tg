@@ -647,9 +647,9 @@ suspend fun main(args: Array<String>) {
                 val s = StringBuilder()
                 var totalPredictions = 0
                 s.appendLine("Possible predictions for given context:")
-                (1..contextWindow.coerceAtMost(tokens.count())).forEach { window ->
+                contextWindow.coerceAtMost(tokens.count()).let { window ->
                     s.appendLine()
-                    s.appendLine("Window $window:")
+//                    s.appendLine("Window $window:")
                     db.possiblePredictions(it.chat.id.chatId.long, tokens.takeLast(window)).let { predictions ->
                         totalPredictions += predictions.count()
                         predictions.forEach { prediction ->
