@@ -94,15 +94,21 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
     val inReplyToMe = message.replyTo?.from?.id == getMe().id
     val hasMentionOfMe =
         message.content.asTextContent()?.textSources?.any { it.mentionTextSourceOrNull()?.username == getMe().username } == true
+    // opinion mode uses user supplied context in otherwise contextless prediction
+    val opinionMode =
+        (hasMyGenerateCommand && message.replyTo != null) || ((message.content.asTextContent()?.textSources?.size
+            ?: 0) == 1 && hasMentionOfMe)
     val shouldAcknowledge =
         (inReplyToMe || hasMentionOfMe || inDirectMessages || hasMyGenerateCommand || (passesChance && !isSilenced)) && !isFromBot
     // TODO: reintroduce message caching for training
     val tokens =
         /*db.recallMessageForTraining(message.chat)?.let { cached -> cached.content.dev.kraskaska.boris.tokenize(db).toList().takeLast(dev.kraskaska.boris.Database.CONTEXT_WINDOW) + message.content.dev.kraskaska.boris.tokenize(db) } ?: */
-        if (!hasCommands) (message.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: db.recallTokensForTraining(
-            message.chat.id.chatId.long
-        )
-        ?: emptyList()) + message.content.tokenize(db) else emptyList()
+        if (opinionMode) message.replyTo?.contentMessageOrNull()?.content?.tokenize(db) ?: emptyList()
+        else if (!hasCommands) (message.replyTo?.contentMessageOrNull()?.content?.tokenize(db)
+            ?: db.recallTokensForTraining(
+                message.chat.id.chatId.long
+            )
+            ?: emptyList()) + message.content.tokenize(db) else emptyList()
     if (!hasCommands) db.updateAssociations(tokens, message.chat.id.chatId.long, config.contextWindow)
     if (!hasCommands) db.cacheTokensForTraining(message.chat.id.chatId.long, message.content.tokenize(db))
     if (!shouldAcknowledge) {
