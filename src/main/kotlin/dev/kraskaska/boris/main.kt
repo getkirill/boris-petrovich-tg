@@ -119,8 +119,8 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         reply(message, "_Boris has no associations\\. Please say something\\!_", MarkdownV2ParseMode)
         return
     }
-    val replyInfo = if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
-        if(opinionMode) message.replyTo?.metaInfo ?: message.metaInfo else message.metaInfo
+    val replyInfo = if(opinionMode) ReplyParameters(message.replyTo?.metaInfo ?: message.metaInfo) else if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
+         message.metaInfo
     ) else null
     val predictStart = Clock.System.now()
     val prediction =
