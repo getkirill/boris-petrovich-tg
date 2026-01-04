@@ -120,7 +120,7 @@ suspend fun <BC : BehaviourContext> BC.handleInteraction(db: Database, message: 
         return
     }
     val replyInfo = if (inReplyToMe || hasMentionOfMe || hasMyGenerateCommand) ReplyParameters(
-        message.metaInfo
+        if(opinionMode) message.replyTo?.metaInfo ?: message.metaInfo else message.metaInfo
     ) else null
     val predictStart = Clock.System.now()
     val prediction =
